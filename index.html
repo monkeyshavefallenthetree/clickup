@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskUp - Your Todo List Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .task-item {
+            transition: all 0.3s ease;
+        }
+        
+        .task-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        .priority-high {
+            border-left: 4px solid #ef4444;
+        }
+        
+        .priority-medium {
+            border-left: 4px solid #f59e0b;
+        }
+        
+        .priority-low {
+            border-left: 4px solid #10b981;
+        }
+        
+        .dragging {
+            opacity: 0.5;
+        }
+        
+        .dark {
+            background: #1a1a2e;
+            color: #eee;
+        }
+        
+        .modal {
+            display: none;
+        }
+        
+        .modal.active {
+            display: flex;
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .kanban-column {
+            min-height: 500px;
+        }
+        
+        .auth-container {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+    
+    <!-- Auth Screen -->
+    <div id="authScreen" class="auth-container min-h-screen flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 w-full max-w-md fade-in">
+            <div class="text-center mb-8">
+                <div class="inline-flex items-center justify-center w-16 h-16 bg-purple-600 rounded-xl mb-4">
+                    <i class="fas fa-check-double text-white text-2xl"></i>
+                </div>
+                <h1 class="text-3xl font-bold text-gray-800 dark:text-white">TaskUp</h1>
+                <p class="text-gray-600 dark:text-gray-300 mt-2">Organize your tasks efficiently</p>
+            </div>
+            
+            <!-- Login Form -->
+            <div id="loginForm">
+                <h2 class="text-2xl font-semibold mb-6 text-gray-800 dark:text-white">Sign In</h2>
+                <form id="loginFormElement" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Email</label>
+                        <input type="email" id="loginEmail" required 
+                            class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 focus:border-transparent outline-none transition">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Password</label>
+                        <input type="password" id="loginPassword" required 
+                            class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 focus:border-transparent outline-none transition">
+                    </div>
+                    <button type="submit" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition duration-200 transform hover:scale-105">
+                        Sign In
+                    </button>
+                </form>
+                <p class="text-center mt-4 text-gray-600 dark:text-gray-400">
+                    Don't have an account? 
+                    <button id="showSignup" class="text-purple-600 hover:text-purple-700 font-semibold">Sign Up</button>
+                </p>
+            </div>
+            
+            <!-- Signup Form -->
+            <div id="signupForm" class="hidden">
+                <h2 class="text-2xl font-semibold mb-6 text-gray-800 dark:text-white">Create Account</h2>
+                <form id="signupFormElement" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Email</label>
+                        <input type="email" id="signupEmail" required 
+                            class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 focus:border-transparent outline-none transition">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Password</label>
+                        <input type="password" id="signupPassword" required minlength="6"
+                            class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 focus:border-transparent outline-none transition">
+                    </div>
+                    <button type="submit" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition duration-200 transform hover:scale-105">
+                        Create Account
+                    </button>
+                </form>
+                <p class="text-center mt-4 text-gray-600 dark:text-gray-400">
+                    Already have an account? 
+                    <button id="showLogin" class="text-purple-600 hover:text-purple-700 font-semibold">Sign In</button>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App Screen -->
+    <div id="appScreen" class="hidden">
+        <!-- Header -->
+        <header class="bg-white dark:bg-gray-800 shadow-md sticky top-0 z-50">
+            <div class="container mx-auto px-4 py-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-4">
+                        <div class="flex items-center space-x-2">
+                            <div class="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-check-double text-white"></i>
+                            </div>
+                            <span class="text-2xl font-bold text-gray-800 dark:text-white">TaskUp</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center space-x-4">
+                        <!-- Search -->
+                        <div class="relative hidden md:block">
+                            <input type="text" id="searchInput" placeholder="Search tasks..." 
+                                class="w-64 pl-10 pr-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none">
+                            <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+                        </div>
+                        
+                        <!-- View Toggle -->
+                        <div class="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+                            <button id="listViewBtn" class="px-4 py-2 rounded-md bg-white dark:bg-gray-600 text-purple-600 dark:text-purple-400 font-medium transition">
+                                <i class="fas fa-list mr-2"></i>List
+                            </button>
+                            <button id="kanbanViewBtn" class="px-4 py-2 rounded-md text-gray-600 dark:text-gray-300 font-medium transition">
+                                <i class="fas fa-columns mr-2"></i>Board
+                            </button>
+                        </div>
+                        
+                        <!-- Dark Mode Toggle -->
+                        <button id="darkModeToggle" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                            <i class="fas fa-moon text-gray-600 dark:text-gray-300 text-xl"></i>
+                        </button>
+                        
+                        <!-- Notifications -->
+                        <div class="relative">
+                            <button id="notificationBtn" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition relative">
+                                <i class="fas fa-bell text-gray-600 dark:text-gray-300 text-xl"></i>
+                                <span id="notificationBadge" class="hidden absolute top-1 right-1 w-5 h-5 bg-red-500 rounded-full text-white text-xs flex items-center justify-center">0</span>
+                            </button>
+                            <div id="notificationPanel" class="hidden absolute right-0 mt-2 w-96 bg-white dark:bg-gray-800 rounded-lg shadow-xl overflow-hidden z-50">
+                                <div class="bg-purple-600 px-4 py-3 flex items-center justify-between">
+                                    <h3 class="text-white font-semibold">Notifications</h3>
+                                    <button id="clearAllNotifications" class="text-white text-sm hover:underline">Clear All</button>
+                                </div>
+                                <div id="notificationsList" class="max-h-96 overflow-y-auto">
+                                    <!-- Notifications will be added here -->
+                                </div>
+                                <div id="emptyNotifications" class="p-8 text-center">
+                                    <i class="fas fa-bell-slash text-4xl text-gray-300 dark:text-gray-600 mb-2"></i>
+                                    <p class="text-gray-500 dark:text-gray-400">No notifications</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- User Menu -->
+                        <div class="relative">
+                            <button id="userMenuBtn" class="flex items-center space-x-2 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                                <div class="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center">
+                                    <i class="fas fa-user text-white text-sm"></i>
+                                </div>
+                                <i class="fas fa-chevron-down text-gray-600 dark:text-gray-300"></i>
+                            </button>
+                            <div id="userMenu" class="hidden absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-2">
+                                <div class="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
+                                    <p id="userEmail" class="text-sm text-gray-600 dark:text-gray-400 truncate"></p>
+                                </div>
+                                <button id="logoutBtn" class="w-full text-left px-4 py-2 text-red-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                                    <i class="fas fa-sign-out-alt mr-2"></i>Logout
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="container mx-auto px-4 py-8">
+            <div class="flex gap-6">
+                <!-- Sidebar -->
+                <aside class="w-64 bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 h-fit sticky top-24">
+                    <button id="newTaskBtn" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition duration-200 transform hover:scale-105 mb-6">
+                        <i class="fas fa-plus mr-2"></i>New Task
+                    </button>
+                    
+                    <div class="space-y-4">
+                        <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase">Navigation</h3>
+                        
+                        <button id="homeBtn" class="nav-btn w-full text-left px-4 py-2 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700 transition bg-purple-100 dark:bg-gray-700" data-view="home">
+                            <i class="fas fa-home mr-3 text-purple-600"></i>
+                            <span class="text-gray-700 dark:text-gray-300">Home</span>
+                        </button>
+                        
+                        <button id="inboxBtn" class="nav-btn w-full text-left px-4 py-2 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700 transition relative" data-view="inbox">
+                            <i class="fas fa-inbox mr-3 text-blue-600"></i>
+                            <span class="text-gray-700 dark:text-gray-300">Inbox</span>
+                            <span id="inboxBadge" class="hidden absolute right-2 top-1/2 transform -translate-y-1/2 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">0</span>
+                        </button>
+                    </div>
+                    
+                    <hr class="my-6 border-gray-200 dark:border-gray-700">
+                    
+                    <div class="space-y-4">
+                        <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase">Filters</h3>
+                        
+                        <button class="filter-btn w-full text-left px-4 py-2 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700 transition" data-filter="all">
+                            <i class="fas fa-inbox mr-3 text-purple-600"></i>
+                            <span class="text-gray-700 dark:text-gray-300">All Tasks</span>
+                            <span id="countAll" class="float-right bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded text-xs">0</span>
+                        </button>
+                        
+                        <button class="filter-btn w-full text-left px-4 py-2 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700 transition" data-filter="today">
+                            <i class="fas fa-calendar-day mr-3 text-blue-600"></i>
+                            <span class="text-gray-700 dark:text-gray-300">Today</span>
+                            <span id="countToday" class="float-right bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded text-xs">0</span>
+                        </button>
+                        
+                        <button class="filter-btn w-full text-left px-4 py-2 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700 transition" data-filter="upcoming">
+                            <i class="fas fa-calendar-week mr-3 text-green-600"></i>
+                            <span class="text-gray-700 dark:text-gray-300">Upcoming</span>
+                            <span id="countUpcoming" class="float-right bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded text-xs">0</span>
+                        </button>
+                        
+                        <button class="filter-btn w-full text-left px-4 py-2 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700 transition" data-filter="completed">
+                            <i class="fas fa-check-circle mr-3 text-green-600"></i>
+                            <span class="text-gray-700 dark:text-gray-300">Completed</span>
+                            <span id="countCompleted" class="float-right bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded text-xs">0</span>
+                        </button>
+                    </div>
+                    
+                    <hr class="my-6 border-gray-200 dark:border-gray-700">
+                    
+                    <!-- Projects Section -->
+                    <div class="space-y-4">
+                        <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase px-2">Projects</h3>
+                        
+                        <!-- Everything Tab (Always Visible) -->
+                        <button id="everythingBtn" class="nav-btn w-full flex items-center px-4 py-3 text-gray-700 dark:text-gray-300 hover:bg-purple-50 dark:hover:bg-gray-700 rounded-lg transition font-medium">
+                            <i class="fas fa-th-large text-purple-600 dark:text-purple-400 mr-3"></i>
+                            <span>Everything</span>
+                            <span id="everythingTaskCount" class="ml-auto bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs font-semibold px-2 py-1 rounded-full">0</span>
+                        </button>
+                    </div>
+                    
+                    <hr class="my-4 border-gray-200 dark:border-gray-700">
+                    
+                    <!-- My Client Section -->
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between px-2">
+                            <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase">My Client</h3>
+                            <button id="newProjectBtn" class="text-purple-600 hover:text-purple-700" title="New Client Project">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                        
+                        <div id="projectsList" class="space-y-2">
+                            <!-- Client projects will be dynamically added -->
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- Main Content Area -->
+                <main class="flex-1">
+                    <!-- Home Dashboard -->
+                    <div id="homeView">
+                        <div class="mb-6">
+                            <h1 class="text-3xl font-bold text-gray-800 dark:text-white mb-2">Welcome back!</h1>
+                            <p class="text-gray-600 dark:text-gray-400">Here's an overview of your tasks</p>
+                        </div>
+                        
+                        <!-- Stats Cards -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                            <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-purple-100 text-sm mb-1">Total Tasks</p>
+                                        <h3 id="statTotal" class="text-3xl font-bold">0</h3>
+                                    </div>
+                                    <div class="w-12 h-12 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-tasks text-2xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-blue-100 text-sm mb-1">In Progress</p>
+                                        <h3 id="statInProgress" class="text-3xl font-bold">0</h3>
+                                    </div>
+                                    <div class="w-12 h-12 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-spinner text-2xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-green-100 text-sm mb-1">Completed</p>
+                                        <h3 id="statCompleted" class="text-3xl font-bold">0</h3>
+                                    </div>
+                                    <div class="w-12 h-12 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-check-circle text-2xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-gradient-to-br from-red-500 to-red-600 rounded-xl shadow-lg p-6 text-white">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-red-100 text-sm mb-1">Overdue</p>
+                                        <h3 id="statOverdue" class="text-3xl font-bold">0</h3>
+                                    </div>
+                                    <div class="w-12 h-12 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-exclamation-triangle text-2xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- My Work & Assigned to Me -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <!-- My Work -->
+                            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h2 class="text-xl font-bold text-gray-800 dark:text-white">
+                                        <i class="fas fa-briefcase text-blue-600 mr-2"></i>My Work
+                                    </h2>
+                                    <span id="myWorkCount" class="bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-3 py-1 rounded-full text-sm">0</span>
+                                </div>
+                                
+                                <!-- Main Tabs: To Do / Done -->
+                                <div class="flex space-x-2 mb-4 border-b border-gray-200 dark:border-gray-700">
+                                    <button id="todoMainTab" class="work-main-tab px-4 py-2 font-medium border-b-2 border-blue-600 text-blue-600 dark:text-blue-400 transition">
+                                        To Do
+                                    </button>
+                                    <button id="doneMainTab" class="work-main-tab px-4 py-2 font-medium border-b-2 border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 transition">
+                                        Done
+                                    </button>
+                                </div>
+                                
+                                <!-- To Do Content -->
+                                <div id="todoMainContent">
+                                    <!-- Sub Tabs: Today, Overdue, Next, Unscheduled -->
+                                    <div class="flex space-x-1 mb-3 overflow-x-auto">
+                                        <button class="work-sub-tab px-3 py-1 text-sm rounded-lg bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 font-medium" data-filter="today">
+                                            Today
+                                        </button>
+                                        <button class="work-sub-tab px-3 py-1 text-sm rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700" data-filter="overdue">
+                                            Overdue
+                                        </button>
+                                        <button class="work-sub-tab px-3 py-1 text-sm rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700" data-filter="next">
+                                            Next
+                                        </button>
+                                        <button class="work-sub-tab px-3 py-1 text-sm rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700" data-filter="unscheduled">
+                                            Unscheduled
+                                        </button>
+                                    </div>
+                                    
+                                    <div id="myWorkList" class="space-y-3 max-h-96 overflow-y-auto">
+                                        <!-- Tasks will be added here -->
+                                    </div>
+                                    <div id="noMyWorkTasks" class="text-center py-8">
+                                        <i class="fas fa-check-circle text-4xl text-gray-300 dark:text-gray-600 mb-2"></i>
+                                        <p class="text-gray-500 dark:text-gray-400 text-sm">No tasks to show</p>
+                                    </div>
+                                </div>
+                                
+                                <!-- Done Content -->
+                                <div id="doneMainContent" class="hidden">
+                                    <div id="doneTasksList" class="space-y-3 max-h-96 overflow-y-auto">
+                                        <!-- Done tasks will be added here -->
+                                    </div>
+                                    <div id="noDoneTasks" class="text-center py-8">
+                                        <i class="fas fa-clipboard-check text-4xl text-gray-300 dark:text-gray-600 mb-2"></i>
+                                        <p class="text-gray-500 dark:text-gray-400 text-sm">No completed tasks</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Assigned to Me -->
+                            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h2 class="text-xl font-bold text-gray-800 dark:text-white">
+                                        <i class="fas fa-user-check text-purple-600 mr-2"></i>Assigned to Me
+                                    </h2>
+                                    <span id="assignedToMeCount" class="bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 px-3 py-1 rounded-full text-sm">0</span>
+                                </div>
+                                <div id="assignedToMeList" class="space-y-3 max-h-[500px] overflow-y-auto">
+                                    <!-- Assigned tasks will be added here -->
+                                </div>
+                                <div id="noAssignedTasks" class="text-center py-8">
+                                    <i class="fas fa-inbox text-4xl text-gray-300 dark:text-gray-600 mb-2"></i>
+                                    <p class="text-gray-500 dark:text-gray-400 text-sm">All caught up! No tasks assigned</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Progress Chart -->
+                        <div class="mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                            <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4">
+                                <i class="fas fa-chart-line text-purple-600 mr-2"></i>Task Progress
+                            </h2>
+                            <div class="relative pt-1">
+                                <div class="flex mb-2 items-center justify-between">
+                                    <div>
+                                        <span class="text-xs font-semibold inline-block text-purple-600 dark:text-purple-400">
+                                            Overall Completion Rate
+                                        </span>
+                                    </div>
+                                    <div class="text-right">
+                                        <span id="completionRate" class="text-xs font-semibold inline-block text-purple-600 dark:text-purple-400">
+                                            0%
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="overflow-hidden h-4 mb-4 text-xs flex rounded-full bg-gray-200 dark:bg-gray-700">
+                                    <div id="progressBar" style="width:0%" class="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-gradient-to-r from-purple-500 to-purple-600 transition-all duration-500"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Inbox View -->
+                    <div id="inboxView" class="hidden">
+                        <div class="mb-6">
+                            <h1 class="text-3xl font-bold text-gray-800 dark:text-white mb-2">
+                                <i class="fas fa-inbox text-blue-600 mr-2"></i>Inbox
+                            </h1>
+                            <p class="text-gray-600 dark:text-gray-400">Stay on top of important notifications and deadlines</p>
+                        </div>
+                        
+                        <!-- Filter Tabs -->
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md mb-6">
+                            <div class="flex border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+                                <button class="inbox-tab px-6 py-4 font-medium border-b-2 border-blue-600 text-blue-600 dark:text-blue-400 whitespace-nowrap" data-inbox-filter="all">
+                                    <i class="fas fa-list mr-2"></i>All
+                                    <span id="inboxAllCount" class="ml-2 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full text-xs">0</span>
+                                </button>
+                                <button class="inbox-tab px-6 py-4 font-medium border-b-2 border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 whitespace-nowrap" data-inbox-filter="deadlines">
+                                    <i class="fas fa-clock mr-2"></i>Upcoming Deadlines
+                                    <span id="inboxDeadlinesCount" class="ml-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-0.5 rounded-full text-xs">0</span>
+                                </button>
+                                <button class="inbox-tab px-6 py-4 font-medium border-b-2 border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 whitespace-nowrap" data-inbox-filter="assigned">
+                                    <i class="fas fa-user-plus mr-2"></i>Assigned to You
+                                    <span id="inboxAssignedCount" class="ml-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-0.5 rounded-full text-xs">0</span>
+                                </button>
+                                <button class="inbox-tab px-6 py-4 font-medium border-b-2 border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 whitespace-nowrap" data-inbox-filter="unread">
+                                    <i class="fas fa-envelope mr-2"></i>Unread
+                                    <span id="inboxUnreadCount" class="ml-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-0.5 rounded-full text-xs">0</span>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Inbox Content -->
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                            <div class="flex items-center justify-between mb-6">
+                                <h2 class="text-xl font-bold text-gray-800 dark:text-white">Notifications</h2>
+                                <button id="markAllReadBtn" class="text-sm text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 font-medium">
+                                    <i class="fas fa-check-double mr-1"></i>Mark all as read
+                                </button>
+                            </div>
+                            
+                            <div id="inboxItemsList" class="space-y-3">
+                                <!-- Inbox items will be added here -->
+                            </div>
+                            
+                            <div id="emptyInbox" class="text-center py-12">
+                                <div class="inline-flex items-center justify-center w-20 h-20 bg-gray-100 dark:bg-gray-700 rounded-full mb-4">
+                                    <i class="fas fa-inbox text-4xl text-gray-400"></i>
+                                </div>
+                                <h3 class="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">You're all caught up!</h3>
+                                <p class="text-gray-500 dark:text-gray-400">No new notifications at the moment</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- List View -->
+                    <div id="listView" class="hidden">
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                            <div class="flex items-center justify-between mb-6">
+                                <h2 class="text-2xl font-bold text-gray-800 dark:text-white">My Tasks</h2>
+                                <div class="flex items-center space-x-2">
+                                    <select id="sortSelect" class="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none">
+                                        <option value="created">Sort by: Created</option>
+                                        <option value="dueDate">Sort by: Due Date</option>
+                                        <option value="priority">Sort by: Priority</option>
+                                        <option value="title">Sort by: Title</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div id="tasksList" class="space-y-4">
+                                <!-- Tasks will be dynamically added -->
+                            </div>
+                            
+                            <div id="emptyState" class="text-center py-12 hidden">
+                                <div class="inline-flex items-center justify-center w-20 h-20 bg-gray-100 dark:bg-gray-700 rounded-full mb-4">
+                                    <i class="fas fa-clipboard-list text-4xl text-gray-400"></i>
+                                </div>
+                                <h3 class="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">No tasks yet</h3>
+                                <p class="text-gray-500 dark:text-gray-400">Create your first task to get started!</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Everything View -->
+                    <div id="everythingView" class="hidden">
+                        <div class="mb-8">
+                            <h2 class="text-3xl font-bold text-gray-800 dark:text-white mb-2">Everything</h2>
+                            <p class="text-gray-600 dark:text-gray-400">View and filter all tasks across your projects</p>
+                        </div>
+                        
+                        <!-- Filter Section -->
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 mb-6">
+                            <div class="flex items-center space-x-4 mb-4">
+                                <i class="fas fa-filter text-purple-600"></i>
+                                <h3 class="text-lg font-semibold text-gray-800 dark:text-white">Filters</h3>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                <!-- Project Filter -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        <i class="fas fa-folder mr-1 text-purple-600"></i>Project
+                                    </label>
+                                    <select id="filterByProject" class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none">
+                                        <option value="">All Projects</option>
+                                    </select>
+                                </div>
+                                
+                                <!-- Client Filter -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        <i class="fas fa-briefcase mr-1 text-purple-600"></i>Client
+                                    </label>
+                                    <input type="text" id="filterByClient" placeholder="Enter client name..." 
+                                        class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none">
+                                </div>
+                                
+                                <!-- Assignee Filter -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        <i class="fas fa-user mr-1 text-purple-600"></i>Assignee
+                                    </label>
+                                    <select id="filterByAssignee" class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none">
+                                        <option value="">All Assignees</option>
+                                        <option value="unassigned">Unassigned</option>
+                                    </select>
+                                </div>
+                                
+                                <!-- Status Filter -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        <i class="fas fa-tasks mr-1 text-purple-600"></i>Status
+                                    </label>
+                                    <select id="filterByStatus" class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none">
+                                        <option value="">All Statuses</option>
+                                        <option value="todo">To Do</option>
+                                        <option value="inProgress">In Progress</option>
+                                        <option value="clientChecking">Client Checking</option>
+                                        <option value="completed">Completed</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center justify-between mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                                <div class="text-sm text-gray-600 dark:text-gray-400">
+                                    <span id="filteredTasksCount">0</span> tasks found
+                                </div>
+                                <button id="clearFiltersBtn" class="px-4 py-2 text-sm text-purple-600 hover:text-purple-700 dark:text-purple-400 font-medium">
+                                    <i class="fas fa-times mr-1"></i>Clear Filters
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- View Toggle -->
+                        <div class="flex items-center justify-between mb-6">
+                            <div class="flex space-x-2">
+                                <button id="everythingListViewBtn" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">
+                                    <i class="fas fa-list mr-2"></i>List
+                                </button>
+                                <button id="everythingBoardViewBtn" class="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition">
+                                    <i class="fas fa-columns mr-2"></i>Board
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Tasks Display -->
+                        <div id="everythingTasksContainer">
+                            <!-- List View -->
+                            <div id="everythingListView" class="space-y-3">
+                                <!-- Tasks will be rendered here -->
+                            </div>
+                            
+                            <!-- Board View -->
+                            <div id="everythingBoardView" class="hidden">
+                                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                                    <!-- To Do Column -->
+                                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                                                <i class="fas fa-circle text-gray-400 text-xs mr-2"></i>To Do
+                                            </h3>
+                                            <span id="everythingTodoCount" class="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-full text-sm">0</span>
+                                        </div>
+                                        <div id="everythingTodoColumn" class="kanban-column space-y-3 min-h-[400px]" data-status="todo">
+                                            <!-- Tasks will be added here -->
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- In Progress Column -->
+                                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                                                <i class="fas fa-circle text-blue-400 text-xs mr-2"></i>In Progress
+                                            </h3>
+                                            <span id="everythingProgressCount" class="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-full text-sm">0</span>
+                                        </div>
+                                        <div id="everythingProgressColumn" class="kanban-column space-y-3 min-h-[400px]" data-status="inProgress">
+                                            <!-- Tasks will be added here -->
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Client Checking Column -->
+                                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                                                <i class="fas fa-circle text-orange-400 text-xs mr-2"></i>Client Checking
+                                            </h3>
+                                            <span id="everythingCheckingCount" class="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-full text-sm">0</span>
+                                        </div>
+                                        <div id="everythingCheckingColumn" class="kanban-column space-y-3 min-h-[400px]" data-status="clientChecking">
+                                            <!-- Tasks will be added here -->
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Completed Column -->
+                                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                                                <i class="fas fa-circle text-green-400 text-xs mr-2"></i>Completed
+                                            </h3>
+                                            <span id="everythingCompletedCount" class="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-full text-sm">0</span>
+                                        </div>
+                                        <div id="everythingCompletedColumn" class="kanban-column space-y-3 min-h-[400px]" data-status="completed">
+                                            <!-- Tasks will be added here -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Empty State -->
+                            <div id="everythingEmptyState" class="hidden text-center py-12">
+                                <i class="fas fa-folder-open text-6xl text-gray-300 dark:text-gray-600 mb-4"></i>
+                                <p class="text-gray-500 dark:text-gray-400 text-lg">No tasks match your filters</p>
+                                <button id="clearFiltersBtn2" class="mt-4 px-6 py-2 text-purple-600 hover:text-purple-700 dark:text-purple-400 font-medium">
+                                    Clear Filters
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Project Detail View -->
+                    <div id="projectDetailView" class="hidden">
+                        <div class="mb-6 flex items-center justify-between">
+                            <div>
+                                <button id="backFromProject" class="text-purple-600 hover:text-purple-700 dark:text-purple-400 mb-2">
+                                    <i class="fas fa-arrow-left mr-2"></i>Back to Projects
+                                </button>
+                                <h1 id="projectDetailTitle" class="text-3xl font-bold text-gray-800 dark:text-white">Project Name</h1>
+                                <p class="text-gray-600 dark:text-gray-400 mt-1">Manage services within this project</p>
+                            </div>
+                            <button id="newServiceBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-6 py-3 rounded-lg transition">
+                                <i class="fas fa-plus mr-2"></i>New Service
+                            </button>
+                        </div>
+                        
+                        <!-- Services Grid -->
+                        <div id="servicesGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <!-- Services will be dynamically added -->
+                        </div>
+                        
+                        <div id="noServicesState" class="text-center py-12">
+                            <div class="inline-flex items-center justify-center w-20 h-20 bg-gray-100 dark:bg-gray-700 rounded-full mb-4">
+                                <i class="fas fa-layer-group text-4xl text-gray-400"></i>
+                            </div>
+                            <h3 class="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">No services yet</h3>
+                            <p class="text-gray-500 dark:text-gray-400">Create your first service to organize tasks</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Service Board View -->
+                    <div id="serviceBoardView" class="hidden">
+                        <div class="mb-6">
+                            <button id="backFromService" class="text-purple-600 hover:text-purple-700 dark:text-purple-400 mb-2">
+                                <i class="fas fa-arrow-left mr-2"></i>Back to Project
+                            </button>
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h1 id="serviceBoardTitle" class="text-3xl font-bold text-gray-800 dark:text-white">Service Name</h1>
+                                    <p id="serviceBoardProject" class="text-gray-600 dark:text-gray-400 mt-1">Project Name</p>
+                                </div>
+                                <button id="newServiceTaskBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-6 py-3 rounded-lg transition">
+                                    <i class="fas fa-plus mr-2"></i>New Task
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Service Board Columns -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <!-- To Do Column -->
+                            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                                        <i class="fas fa-circle text-blue-400 text-xs mr-2"></i>To Do
+                                    </h3>
+                                    <span id="serviceTodoCount" class="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-full text-sm">0</span>
+                                </div>
+                                <div id="serviceTodoColumn" class="kanban-column space-y-3 min-h-[400px]" data-status="todo">
+                                    <!-- Tasks will be added here -->
+                                </div>
+                            </div>
+                            
+                            <!-- In Progress Column -->
+                            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                                        <i class="fas fa-circle text-yellow-400 text-xs mr-2"></i>In Progress
+                                    </h3>
+                                    <span id="serviceProgressCount" class="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-full text-sm">0</span>
+                                </div>
+                                <div id="serviceProgressColumn" class="kanban-column space-y-3 min-h-[400px]" data-status="inProgress">
+                                    <!-- Tasks will be added here -->
+                                </div>
+                            </div>
+                            
+                            <!-- Client Checking Column -->
+                            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                                        <i class="fas fa-circle text-orange-400 text-xs mr-2"></i>Client Checking
+                                    </h3>
+                                    <span id="serviceCheckingCount" class="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-full text-sm">0</span>
+                                </div>
+                                <div id="serviceCheckingColumn" class="kanban-column space-y-3 min-h-[400px]" data-status="clientChecking">
+                                    <!-- Tasks will be added here -->
+                                </div>
+                            </div>
+                            
+                            <!-- Completed Column -->
+                            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                                        <i class="fas fa-circle text-green-400 text-xs mr-2"></i>Completed
+                                    </h3>
+                                    <span id="serviceCompletedCount" class="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-full text-sm">0</span>
+                                </div>
+                                <div id="serviceCompletedColumn" class="kanban-column space-y-3 min-h-[400px]" data-status="completed">
+                                    <!-- Tasks will be added here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Kanban View -->
+                    <div id="kanbanView" class="hidden">
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            <!-- To Do Column -->
+                            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                                        <i class="fas fa-circle text-gray-400 text-xs mr-2"></i>To Do
+                                    </h3>
+                                    <span id="todoCount" class="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-full text-sm">0</span>
+                                </div>
+                                <div id="todoColumn" class="kanban-column space-y-3" data-status="todo">
+                                    <!-- Tasks will be added here -->
+                                </div>
+                            </div>
+                            
+                            <!-- In Progress Column -->
+                            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                                        <i class="fas fa-circle text-blue-400 text-xs mr-2"></i>In Progress
+                                    </h3>
+                                    <span id="progressCount" class="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-full text-sm">0</span>
+                                </div>
+                                <div id="progressColumn" class="kanban-column space-y-3" data-status="inProgress">
+                                    <!-- Tasks will be added here -->
+                                </div>
+                            </div>
+                            
+                            <!-- Client Checking Column -->
+                            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                                        <i class="fas fa-circle text-orange-400 text-xs mr-2"></i>Client Checking
+                                    </h3>
+                                    <span id="checkingCount" class="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-full text-sm">0</span>
+                                </div>
+                                <div id="checkingColumn" class="kanban-column space-y-3" data-status="clientChecking">
+                                    <!-- Tasks will be added here -->
+                                </div>
+                            </div>
+                            
+                            <!-- Completed Column -->
+                            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                                        <i class="fas fa-circle text-green-400 text-xs mr-2"></i>Completed
+                                    </h3>
+                                    <span id="completedCount" class="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-full text-sm">0</span>
+                                </div>
+                                <div id="completedColumn" class="kanban-column space-y-3" data-status="completed">
+                                    <!-- Tasks will be added here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task Modal -->
+    <div id="taskModal" class="modal fixed inset-0 bg-black bg-opacity-50 items-center justify-center z-50">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="p-6 border-b border-gray-200 dark:border-gray-700">
+                <div class="flex items-center justify-between">
+                    <h3 id="modalTitle" class="text-2xl font-bold text-gray-800 dark:text-white">New Task</h3>
+                    <button id="closeModal" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                        <i class="fas fa-times text-2xl"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <form id="taskForm" class="p-6 space-y-6">
+                <input type="hidden" id="taskId">
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Task Title</label>
+                    <input type="text" id="taskTitle" required 
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none"
+                        placeholder="Enter task title...">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Description</label>
+                    <textarea id="taskDescription" rows="4" 
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none"
+                        placeholder="Add a description..."></textarea>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Due Date</label>
+                        <input type="date" id="taskDueDate" 
+                            class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Priority</label>
+                        <select id="taskPriority" 
+                            class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none">
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Project</label>
+                    <select id="taskProject" 
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none">
+                        <option value="">No Project</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        <i class="fas fa-user-plus text-purple-600 mr-1"></i>Assign To
+                    </label>
+                    <select id="taskAssignedTo" 
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none">
+                        <option value="">Unassigned</option>
+                        <option value="__ALL__">👥 Assign to All</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tags</label>
+                    <input type="text" id="taskTags" 
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none"
+                        placeholder="Add tags (comma separated)">
+                </div>
+                
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Checklist</label>
+                        <button type="button" id="addChecklistItem" class="text-purple-600 hover:text-purple-700 text-sm font-medium">
+                            <i class="fas fa-plus mr-1"></i>Add Item
+                        </button>
+                    </div>
+                    <div id="checklistItems" class="space-y-2">
+                        <!-- Checklist items will be added here -->
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between pt-6 border-t border-gray-200 dark:border-gray-700">
+                    <button type="button" id="deleteTaskBtn" class="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition hidden">
+                        <i class="fas fa-trash mr-2"></i>Delete
+                    </button>
+                    <div class="flex space-x-3 ml-auto">
+                        <button type="button" id="cancelModal" class="px-6 py-3 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-semibold rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition">
+                            Cancel
+                        </button>
+                        <button type="submit" class="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition">
+                            Save Task
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Project Modal -->
+    <div id="projectModal" class="modal fixed inset-0 bg-black bg-opacity-50 items-center justify-center z-50">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md mx-4">
+            <div class="p-6 border-b border-gray-200 dark:border-gray-700">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-2xl font-bold text-gray-800 dark:text-white">New Project</h3>
+                    <button id="closeProjectModal" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                        <i class="fas fa-times text-2xl"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <form id="projectForm" class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Project Name</label>
+                    <input type="text" id="projectName" required 
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none"
+                        placeholder="Enter project name...">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Color</label>
+                    <div class="flex space-x-2">
+                        <button type="button" class="color-btn w-10 h-10 rounded-lg bg-red-500 hover:ring-2 ring-gray-400" data-color="#ef4444"></button>
+                        <button type="button" class="color-btn w-10 h-10 rounded-lg bg-orange-500 hover:ring-2 ring-gray-400" data-color="#f97316"></button>
+                        <button type="button" class="color-btn w-10 h-10 rounded-lg bg-yellow-500 hover:ring-2 ring-gray-400" data-color="#eab308"></button>
+                        <button type="button" class="color-btn w-10 h-10 rounded-lg bg-green-500 hover:ring-2 ring-gray-400" data-color="#10b981"></button>
+                        <button type="button" class="color-btn w-10 h-10 rounded-lg bg-blue-500 hover:ring-2 ring-gray-400" data-color="#3b82f6"></button>
+                        <button type="button" class="color-btn w-10 h-10 rounded-lg bg-purple-500 hover:ring-2 ring-gray-400" data-color="#8b5cf6"></button>
+                    </div>
+                    <input type="hidden" id="projectColor" value="#8b5cf6">
+                </div>
+                
+                <div class="flex space-x-3 pt-4">
+                    <button type="button" id="cancelProjectModal" class="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-semibold rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition">
+                        Cancel
+                    </button>
+                    <button type="submit" class="flex-1 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition">
+                        Create Project
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Service Modal -->
+    <div id="serviceModal" class="modal fixed inset-0 bg-black bg-opacity-50 items-center justify-center z-50">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md mx-4">
+            <div class="p-6 border-b border-gray-200 dark:border-gray-700">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-2xl font-bold text-gray-800 dark:text-white">New Service</h3>
+                    <button id="closeServiceModal" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                        <i class="fas fa-times text-2xl"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <form id="serviceForm" class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Service Name</label>
+                    <input type="text" id="serviceName" required 
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none"
+                        placeholder="e.g., Development, Design, Marketing...">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Description (Optional)</label>
+                    <textarea id="serviceDescription" rows="3" 
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none"
+                        placeholder="Brief description of this service..."></textarea>
+                </div>
+                
+                <div class="flex space-x-3 pt-4">
+                    <button type="button" id="cancelServiceModal" class="flex-1 px-6 py-3 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-semibold rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition">
+                        Cancel
+                    </button>
+                    <button type="submit" class="flex-1 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition">
+                        Create Service
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module" src="firebase-config.js"></script>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
+

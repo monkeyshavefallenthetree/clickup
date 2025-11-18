@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return request.auth != null && (
+        request.auth.token.email == 'mftadmin@mft.com' ||
+        request.auth.token.email == 'mftaccountmanager@mft.com'
+      );
+    }
+    
+    // Tasks collection
+    // Admins can read/write all tasks
+    // Regular users can only access their own tasks
+    match /tasks/{taskId} {
+      allow read: if request.auth != null && (
+        isAdmin() || 
+        request.auth.uid == resource.data.userId
+      );
+      allow write: if request.auth != null && (
+        isAdmin() || 
+        request.auth.uid == resource.data.userId
+      );
+      allow create: if request.auth != null;
+    }
+    
+    // Projects collection
+    // Admins can read/write all projects
+    // Regular users can only access their own projects
+    match /projects/{projectId} {
+      allow read: if request.auth != null && (
+        isAdmin() || 
+        request.auth.uid == resource.data.userId
+      );
+      allow write: if request.auth != null && (
+        isAdmin() || 
+        request.auth.uid == resource.data.userId
+      );
+      allow create: if request.auth != null;
+    }
+    
+    // Services collection
+    // Admins can read/write all services
+    // Regular users can only access their own services
+    match /services/{serviceId} {
+      allow read: if request.auth != null && (
+        isAdmin() || 
+        request.auth.uid == resource.data.userId
+      );
+      allow write: if request.auth != null && (
+        isAdmin() || 
+        request.auth.uid == resource.data.userId
+      );
+      allow create: if request.auth != null;
+    }
+    
+    // Users collection - any authenticated user can read all users (for assignment dropdown)
+    // Admins can update any user
+    // Regular users can only create and update their own user document
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && (
+        isAdmin() || 
+        request.auth.uid == resource.data.uid
+      );
+      allow delete: if request.auth != null && (
+        isAdmin() || 
+        request.auth.uid == resource.data.uid
+      );
+    }
+  }
+}
+
