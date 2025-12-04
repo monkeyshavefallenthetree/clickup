@@ -155,21 +155,6 @@
                             <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
                         </div>
                         
-                        <!-- View Toggle -->
-                        <div class="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-                            <button id="listViewBtn" class="px-4 py-2 rounded-md bg-white dark:bg-gray-600 text-purple-600 dark:text-purple-400 font-medium transition">
-                                <i class="fas fa-list mr-2"></i>List
-                            </button>
-                            <button id="kanbanViewBtn" class="px-4 py-2 rounded-md text-gray-600 dark:text-gray-300 font-medium transition">
-                                <i class="fas fa-columns mr-2"></i>Board
-                            </button>
-                        </div>
-                        
-                        <!-- Dark Mode Toggle -->
-                        <button id="darkModeToggle" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">
-                            <i class="fas fa-moon text-gray-600 dark:text-gray-300 text-xl"></i>
-                        </button>
-                        
                         <!-- Notifications -->
                         <div class="relative">
                             <button id="notificationBtn" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition relative">
@@ -519,15 +504,7 @@
                     <div id="listView" class="hidden">
                         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                             <div class="flex items-center justify-between mb-6">
-                                <h2 class="text-2xl font-bold text-gray-800 dark:text-white">My Tasks</h2>
-                                <div class="flex items-center space-x-2">
-                                    <select id="sortSelect" class="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none">
-                                        <option value="created">Sort by: Created</option>
-                                        <option value="dueDate">Sort by: Due Date</option>
-                                        <option value="priority">Sort by: Priority</option>
-                                        <option value="title">Sort by: Title</option>
-                                    </select>
-                                </div>
+                                <h2 class="text-2xl font-bold text-gray-800 dark:text-white">All Tasks</h2>
                             </div>
                             
                             <div id="tasksList" class="space-y-4">
@@ -911,22 +888,47 @@
                 </div>
                 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Project</label>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        <i class="fas fa-folder text-purple-600 mr-1"></i>Client (Project)
+                    </label>
                     <select id="taskProject" 
                         class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none">
                         <option value="">No Project</option>
                     </select>
                 </div>
                 
+                <div id="serviceSelectContainer" class="hidden">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        <i class="fas fa-layer-group text-blue-600 mr-1"></i>Service
+                    </label>
+                    <select id="taskService" 
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none">
+                        <option value="">No Service</option>
+                    </select>
+                </div>
+                
                 <div>
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        <i class="fas fa-user-plus text-purple-600 mr-1"></i>Assign To
+                        <i class="fas fa-user-plus text-purple-600 mr-1"></i>Assign To (Responsible) - Multiple
                     </label>
-                    <select id="taskAssignedTo" 
-                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-600 outline-none">
-                        <option value="">Unassigned</option>
-                        <option value="__ALL__">👥 Assign to All</option>
-                    </select>
+                    <div class="border border-gray-300 dark:border-gray-600 rounded-lg p-3 max-h-48 overflow-y-auto bg-white dark:bg-gray-700">
+                        <div id="assignedToCheckboxList" class="space-y-2">
+                            <!-- Assigned users will be dynamically added here -->
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-2 italic">Assigned users are responsible for completing the task</p>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        <i class="fas fa-eye text-blue-600 mr-1"></i>Watchers (Multiple)
+                    </label>
+                    <div class="border border-gray-300 dark:border-gray-600 rounded-lg p-3 max-h-48 overflow-y-auto bg-white dark:bg-gray-700">
+                        <div id="watchersCheckboxList" class="space-y-2">
+                            <!-- Watchers will be dynamically added here -->
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-2 italic">Watchers will receive notifications about task updates</p>
+                    </div>
                 </div>
                 
                 <div>

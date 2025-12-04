@@ -214,6 +214,7 @@ function initializeEventListeners() {
     document.getElementById('taskForm').addEventListener('submit', handleTaskSubmit);
     document.getElementById('deleteTaskBtn').addEventListener('click', handleDeleteTask);
     document.getElementById('addChecklistItem').addEventListener('click', addChecklistItem);
+    document.getElementById('taskProject').addEventListener('change', handleProjectChange);
 
     // Project Modal Events
     document.getElementById('newProjectBtn').addEventListener('click', openProjectModal);
@@ -252,13 +253,6 @@ function initializeEventListeners() {
         });
     });
 
-    // View Toggle
-    document.getElementById('listViewBtn').addEventListener('click', () => switchView('list'));
-    document.getElementById('kanbanViewBtn').addEventListener('click', () => switchView('kanban'));
-
-    // Dark Mode Toggle
-    // Dark mode removed - toggle button not used
-
     // Search
     document.getElementById('searchInput').addEventListener('input', handleSearch);
 
@@ -272,11 +266,6 @@ function initializeEventListeners() {
                 switchToView('list');
             }
         });
-    });
-
-    // Sort Select
-    document.getElementById('sortSelect').addEventListener('change', (e) => {
-        sortTasks(e.target.value);
     });
 
     // Close modals on outside click
@@ -368,18 +357,76 @@ function loadUsers() {
 }
 
 function populateUserDropdowns() {
-    const assignedToSelect = document.getElementById('taskAssignedTo');
-    if (!assignedToSelect) return;
+    // Populate both assigned and watchers lists
+    populateAssignedToList();
+    populateWatchersList();
+}
+
+function populateAssignedToList(selectedAssignees = []) {
+    const assignedContainer = document.getElementById('assignedToCheckboxList');
+    if (!assignedContainer) return;
     
-    // Clear existing options except "Unassigned" and "Assign to All"
-    assignedToSelect.innerHTML = '<option value="">Unassigned</option><option value="__ALL__">👥 Assign to All</option>';
+    assignedContainer.innerHTML = '';
     
-    // Add all users
+    if (users.length === 0) {
+        assignedContainer.innerHTML = '<p class="text-xs text-gray-500 dark:text-gray-400 italic">No users available</p>';
+        return;
+    }
+    
+    // Add checkbox for each user
     users.forEach(user => {
-        const option = document.createElement('option');
-        option.value = user.uid;
-        option.textContent = user.displayName || user.email;
-        assignedToSelect.appendChild(option);
+        const div = document.createElement('div');
+        div.className = 'flex items-center space-x-2 hover:bg-gray-50 dark:hover:bg-gray-600 p-2 rounded';
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `assigned-${user.uid}`;
+        checkbox.value = user.uid;
+        checkbox.className = 'w-4 h-4 text-purple-600 rounded focus:ring-2 focus:ring-purple-500';
+        checkbox.checked = selectedAssignees.includes(user.uid);
+        
+        const label = document.createElement('label');
+        label.htmlFor = `assigned-${user.uid}`;
+        label.className = 'flex-1 text-sm text-gray-700 dark:text-gray-300 cursor-pointer';
+        label.textContent = user.displayName || user.email;
+        
+        div.appendChild(checkbox);
+        div.appendChild(label);
+        assignedContainer.appendChild(div);
+    });
+}
+
+function populateWatchersList(selectedWatchers = []) {
+    const watchersContainer = document.getElementById('watchersCheckboxList');
+    if (!watchersContainer) return;
+    
+    watchersContainer.innerHTML = '';
+    
+    if (users.length === 0) {
+        watchersContainer.innerHTML = '<p class="text-xs text-gray-500 dark:text-gray-400 italic">No users available</p>';
+        return;
+    }
+    
+    // Add checkbox for each user
+    users.forEach(user => {
+        const div = document.createElement('div');
+        div.className = 'flex items-center space-x-2 hover:bg-gray-50 dark:hover:bg-gray-600 p-2 rounded';
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `watcher-${user.uid}`;
+        checkbox.value = user.uid;
+        checkbox.className = 'w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500';
+        checkbox.checked = selectedWatchers.includes(user.uid);
+        
+        const label = document.createElement('label');
+        label.htmlFor = `watcher-${user.uid}`;
+        label.className = 'flex-1 text-sm text-gray-700 dark:text-gray-300 cursor-pointer';
+        label.textContent = user.displayName || user.email;
+        
+        div.appendChild(checkbox);
+        div.appendChild(label);
+        watchersContainer.appendChild(div);
     });
 }
 
@@ -404,17 +451,29 @@ function loadTasks() {
 
     unsubscribeTasks = onSnapshot(q, 
         (snapshot) => {
-            console.log('Tasks loaded:', snapshot.size);
+            console.log('=== Tasks Snapshot Received ===');
+            console.log('Tasks loaded from Firestore:', snapshot.size);
             const previousTaskCount = tasks.length;
             tasks = [];
             
             snapshot.forEach((doc) => {
                 const taskData = { id: doc.id, ...doc.data() };
-                console.log('Task loaded:', taskData.title);
+                console.log('Task loaded:', {
+                    title: taskData.title,
+                    projectId: taskData.projectId,
+                    serviceId: taskData.serviceId,
+                    dueDate: taskData.dueDate,
+                    status: taskData.status
+                });
                 tasks.push(taskData);
             });
             
             console.log('Total tasks in array:', tasks.length);
+            console.log('Current view state:', {
+                currentView: currentView,
+                currentMainView: currentMainView,
+                currentFilter: currentFilter
+            });
             
             // Detect new tasks and create notifications
             if (previousTaskCount > 0 && tasks.length > previousTaskCount) {
@@ -434,9 +493,22 @@ function loadTasks() {
             updateHomeDashboard();
             checkAndGenerateInboxNotifications();
             
+            // Update service task counts in sidebar without full re-render
+            updateServiceTaskCounts();
+            
             // Also update service board if viewing one
             if (currentMainView === 'service-board') {
                 renderServiceBoard();
+            }
+            
+            // Also update everything view if viewing it
+            if (currentMainView === 'everything') {
+                renderEverythingView();
+            }
+            
+            // Also update project detail view if viewing one
+            if (currentMainView === 'project-detail') {
+                renderServicesForProject(currentProjectId);
             }
         },
         (error) => {
@@ -470,9 +542,22 @@ function loadTasks() {
                     updateHomeDashboard();
                     checkAndGenerateInboxNotifications();
                     
+                    // Update service task counts in sidebar without full re-render
+                    updateServiceTaskCounts();
+                    
                     // Also update service board if viewing one
                     if (currentMainView === 'service-board') {
                         renderServiceBoard();
+                    }
+                    
+                    // Also update everything view if viewing it
+                    if (currentMainView === 'everything') {
+                        renderEverythingView();
+                    }
+                    
+                    // Also update project detail view if viewing one
+                    if (currentMainView === 'project-detail') {
+                        renderServicesForProject(currentProjectId);
                     }
                 });
             } else {
@@ -482,101 +567,181 @@ function loadTasks() {
     );
 }
 
+// ============================================
+// NEW UNIFIED RENDERING SYSTEM
+// ============================================
+
 function renderTasks() {
-    console.log('renderTasks called, currentView:', currentView, 'currentMainView:', currentMainView, 'tasks.length:', tasks.length);
-    
-    // Only render if we're in list or kanban view
-    if (currentMainView !== 'list' && currentMainView !== 'kanban') {
-        console.log('Skipping renderTasks - not in list/kanban view');
-        return;
-    }
-    
-    const filteredTasks = filterTasks();
-    console.log('Filtered tasks:', filteredTasks.length, 'for view:', currentView);
-    const tasksList = document.getElementById('tasksList');
-    const emptyState = document.getElementById('emptyState');
-
-    if (currentView === 'list') {
-        console.log('Rendering list view with', filteredTasks.length, 'tasks');
-        renderListView(filteredTasks);
-    } else if (currentView === 'kanban') {
-        console.log('Rendering kanban view with', filteredTasks.length, 'tasks');
-        renderKanbanView(filteredTasks);
-    }
-
-    if (filteredTasks.length === 0 && currentView === 'list') {
-        emptyState.classList.remove('hidden');
-        tasksList.classList.add('hidden');
-    } else if (currentView === 'list') {
-        emptyState.classList.add('hidden');
-        tasksList.classList.remove('hidden');
-    }
-    
-    console.log('renderTasks complete');
-}
-
-function renderListView(tasksList) {
-    const container = document.getElementById('tasksList');
-    container.innerHTML = '';
-
-    tasksList.forEach(task => {
-        const taskElement = createTaskElement(task, 'list');
-        container.appendChild(taskElement);
+    console.log('=== 🎨 RENDER TASKS START ===');
+    console.log('📊 State:', {
+        view: currentView,
+        mainView: currentMainView,
+        filter: currentFilter,
+        totalTasks: tasks.length
     });
-}
-
-function renderKanbanView(tasksList) {
-    console.log('renderKanbanView called with', tasksList.length, 'tasks');
     
-    const todoColumn = document.getElementById('todoColumn');
-    const progressColumn = document.getElementById('progressColumn');
-    const checkingColumn = document.getElementById('checkingColumn');
-    const completedColumn = document.getElementById('completedColumn');
-
-    if (!todoColumn || !progressColumn || !checkingColumn || !completedColumn) {
-        console.error('Kanban columns not found!');
+    // Check if we should render
+    if (currentMainView !== 'list' && currentMainView !== 'kanban') {
+        console.log('⚠️ Not rendering - current view is:', currentMainView);
         return;
     }
+    
+    // Get tasks to display
+    let displayTasks = [...tasks];
+    
+    // Apply filter ONLY if not 'all'
+    if (currentFilter !== 'all') {
+        displayTasks = applyFilter(displayTasks, currentFilter);
+        console.log(`🔍 Filter '${currentFilter}' applied: ${displayTasks.length} tasks`);
+    } else {
+        console.log('✅ Showing ALL tasks (no filter)');
+    }
+    
+    console.log(`📋 Displaying ${displayTasks.length} tasks`);
+    
+    // Render in current view mode
+    if (currentView === 'list') {
+        renderAllTasksList(displayTasks);
+    } else if (currentView === 'kanban') {
+        renderAllTasksBoard(displayTasks);
+    }
+    
+    console.log('=== ✅ RENDER COMPLETE ===');
+}
 
-    todoColumn.innerHTML = '';
-    progressColumn.innerHTML = '';
-    checkingColumn.innerHTML = '';
-    completedColumn.innerHTML = '';
+function applyFilter(taskList, filter) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    switch (filter) {
+        case 'today':
+            return taskList.filter(task => {
+                if (!task.dueDate) return false;
+                const taskDate = new Date(task.dueDate);
+                taskDate.setHours(0, 0, 0, 0);
+                return taskDate.getTime() === today.getTime();
+            });
+            
+        case 'upcoming':
+            return taskList.filter(task => {
+                if (!task.dueDate) return false;
+                const taskDate = new Date(task.dueDate);
+                return taskDate > today;
+            });
+            
+        case 'completed':
+            return taskList.filter(task => task.status === 'completed');
+            
+        default:
+            return taskList;
+    }
+}
 
-    let todoCount = 0, progressCount = 0, checkingCount = 0, completedCount = 0;
-
-    tasksList.forEach(task => {
-        const taskElement = createTaskElement(task, 'kanban');
-        
-        console.log('Task:', task.title, 'Status:', task.status);
-        
-        if (task.status === 'completed') {
-            completedColumn.appendChild(taskElement);
-            completedCount++;
-        } else if (task.status === 'clientChecking') {
-            checkingColumn.appendChild(taskElement);
-            checkingCount++;
-        } else if (task.status === 'inProgress') {
-            progressColumn.appendChild(taskElement);
-            progressCount++;
-        } else {
-            todoColumn.appendChild(taskElement);
-            todoCount++;
+function renderAllTasksList(taskList) {
+    console.log('📝 Rendering LIST view with', taskList.length, 'tasks');
+    
+    const container = document.getElementById('tasksList');
+    const emptyState = document.getElementById('emptyState');
+    
+    if (!container) {
+        console.error('❌ tasksList container not found!');
+        return;
+    }
+    
+    // Clear container
+    container.innerHTML = '';
+    
+    // Show/hide empty state
+    if (taskList.length === 0) {
+        console.log('📭 No tasks to display - showing empty state');
+        if (emptyState) {
+            emptyState.classList.remove('hidden');
+            container.classList.add('hidden');
+        }
+        return;
+    }
+    
+    if (emptyState) {
+        emptyState.classList.add('hidden');
+        container.classList.remove('hidden');
+    }
+    
+    // Render each task
+    let rendered = 0;
+    taskList.forEach(task => {
+        try {
+            const taskElement = createTaskElement(task, 'list');
+            container.appendChild(taskElement);
+            rendered++;
+        } catch (error) {
+            console.error('❌ Error rendering task:', task.title, error);
         }
     });
+    
+    console.log(`✅ Successfully rendered ${rendered} tasks in list`);
+}
 
-    console.log('Column distribution - Todo:', todoCount, 'Progress:', progressCount, 'Checking:', checkingCount, 'Completed:', completedCount);
-
-    // Update column counts
-    document.getElementById('todoCount').textContent = todoCount;
-    document.getElementById('progressCount').textContent = progressCount;
-    document.getElementById('checkingCount').textContent = checkingCount;
-    document.getElementById('completedCount').textContent = completedCount;
-
+function renderAllTasksBoard(taskList) {
+    console.log('📊 Rendering BOARD view with', taskList.length, 'tasks');
+    
+    const columns = {
+        todo: document.getElementById('todoColumn'),
+        inProgress: document.getElementById('progressColumn'),
+        clientChecking: document.getElementById('checkingColumn'),
+        completed: document.getElementById('completedColumn')
+    };
+    
+    // Verify columns exist
+    const missingColumns = Object.entries(columns)
+        .filter(([key, el]) => !el)
+        .map(([key]) => key);
+    
+    if (missingColumns.length > 0) {
+        console.error('❌ Missing columns:', missingColumns);
+        return;
+    }
+    
+    // Clear all columns
+    Object.values(columns).forEach(col => col.innerHTML = '');
+    
+    const counts = { todo: 0, inProgress: 0, clientChecking: 0, completed: 0 };
+    
+    // Distribute tasks to columns
+    taskList.forEach(task => {
+        try {
+            const taskElement = createTaskElement(task, 'kanban');
+            const status = task.status || 'todo';
+            
+            // Place task in appropriate column
+            if (status === 'completed') {
+                columns.completed.appendChild(taskElement);
+                counts.completed++;
+            } else if (status === 'clientChecking') {
+                columns.clientChecking.appendChild(taskElement);
+                counts.clientChecking++;
+            } else if (status === 'inProgress') {
+                columns.inProgress.appendChild(taskElement);
+                counts.inProgress++;
+            } else {
+                // Default to todo for any other status
+                columns.todo.appendChild(taskElement);
+                counts.todo++;
+            }
+        } catch (error) {
+            console.error('❌ Error rendering task:', task.title, error);
+        }
+    });
+    
+    console.log('✅ Board distribution:', counts);
+    
+    // Update count badges
+    document.getElementById('todoCount').textContent = counts.todo;
+    document.getElementById('progressCount').textContent = counts.inProgress;
+    document.getElementById('checkingCount').textContent = counts.clientChecking;
+    document.getElementById('completedCount').textContent = counts.completed;
+    
     // Setup drag and drop
     setupDragAndDrop();
-    
-    console.log('renderKanbanView complete');
 }
 
 function createTaskElement(task, viewType) {
@@ -599,12 +764,40 @@ function createTaskElement(task, viewType) {
     const checklistProgress = task.checklist ? 
         `${task.checklist.filter(item => item.completed).length}/${task.checklist.length}` : '';
     
-    const assignedToText = task.assignedTo ? getAssignedUserName(task.assignedTo) : '';
-    const isAssignedToAll = task.assignedTo === '__ALL__';
-    const assignedBadgeClass = isAssignedToAll 
-        ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300' 
-        : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300';
-    const assignedIcon = isAssignedToAll ? 'fa-users' : 'fa-user';
+    // Handle assignedTo - can be array (new) or string (legacy)
+    let assignedToText = '';
+    let assignedBadgeClass = 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300';
+    let assignedIcon = 'fa-user';
+    
+    if (task.assignedTo) {
+        if (Array.isArray(task.assignedTo)) {
+            // New format: array of user IDs
+            if (task.assignedTo.length > 0) {
+                const assignedNames = task.assignedTo.map(uid => getAssignedUserName(uid));
+                assignedToText = task.assignedTo.length === 1 
+                    ? assignedNames[0]
+                    : `${task.assignedTo.length} Users`;
+                assignedIcon = task.assignedTo.length > 1 ? 'fa-users' : 'fa-user';
+            }
+        } else {
+            // Legacy format: single user ID or __ALL__
+            assignedToText = getAssignedUserName(task.assignedTo);
+            const isAssignedToAll = task.assignedTo === '__ALL__';
+            assignedIcon = isAssignedToAll ? 'fa-users' : 'fa-user';
+        }
+    }
+    
+    // Show task owner badge if admin is viewing and task belongs to someone else
+    const taskOwnerBadge = (isAdmin && task.userId && task.userId !== currentUser.uid) 
+        ? `<span class="text-xs px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full"><i class="fas fa-user-circle mr-1"></i>Owner: ${getTaskOwnerName(task.userId)}</span>`
+        : '';
+    
+    // Show watchers if any
+    const watchersBadge = (task.watchers && task.watchers.length > 0)
+        ? `<span class="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-full" title="${task.watchers.map(uid => getTaskOwnerName(uid)).join(', ')}">
+             <i class="fas fa-eye mr-1"></i>${task.watchers.length} Watcher${task.watchers.length > 1 ? 's' : ''}
+           </span>`
+        : '';
 
     div.innerHTML = `
         <div class="flex items-start justify-between group">
@@ -620,6 +813,7 @@ function createTaskElement(task, viewType) {
                         ${checklistProgress ? `<span class="text-xs text-gray-500 dark:text-gray-400"><i class="far fa-check-square mr-1"></i>${checklistProgress}</span>` : ''}
                         ${task.projectId ? `<span class="text-xs text-gray-500 dark:text-gray-400"><i class="fas fa-folder mr-1"></i>${getProjectName(task.projectId)}</span>` : ''}
                         ${assignedToText ? `<span class="text-xs px-2 py-1 ${assignedBadgeClass} rounded-full"><i class="fas ${assignedIcon} mr-1"></i>${assignedToText}</span>` : ''}
+                        ${watchersBadge}
                         ${taskOwnerBadge}
                     </div>
                     ${tags ? `<div class="flex gap-1 mt-2 flex-wrap">${tags}</div>` : ''}
@@ -681,60 +875,7 @@ async function toggleTaskComplete(taskId) {
     }
 }
 
-function filterTasks() {
-    let filtered = [...tasks];
-
-    // Apply filter
-    switch (currentFilter) {
-        case 'today':
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            filtered = filtered.filter(task => {
-                if (!task.dueDate) return false;
-                const taskDate = new Date(task.dueDate);
-                taskDate.setHours(0, 0, 0, 0);
-                return taskDate.getTime() === today.getTime();
-            });
-            break;
-        case 'upcoming':
-            const tomorrow = new Date();
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            tomorrow.setHours(0, 0, 0, 0);
-            filtered = filtered.filter(task => {
-                if (!task.dueDate) return false;
-                const taskDate = new Date(task.dueDate);
-                return taskDate >= tomorrow;
-            });
-            break;
-        case 'completed':
-            filtered = filtered.filter(task => task.status === 'completed');
-            break;
-        case 'project':
-            filtered = filtered.filter(task => task.projectId === currentFilter.split(':')[1]);
-            break;
-    }
-
-    return filtered;
-}
-
-function sortTasks(sortBy) {
-    const sortFunctions = {
-        created: (a, b) => b.createdAt - a.createdAt,
-        dueDate: (a, b) => {
-            if (!a.dueDate) return 1;
-            if (!b.dueDate) return -1;
-            return new Date(a.dueDate) - new Date(b.dueDate);
-        },
-        priority: (a, b) => {
-            const priorities = { high: 3, medium: 2, low: 1 };
-            return priorities[b.priority] - priorities[a.priority];
-        },
-        title: (a, b) => a.title.localeCompare(b.title)
-    };
-
-    tasks.sort(sortFunctions[sortBy] || sortFunctions.created);
-    renderTasks();
-}
+// Old filterTasks and sortTasks functions removed - replaced by applyFilter in new rendering system
 
 function handleSearch(e) {
     const searchTerm = e.target.value.toLowerCase();
@@ -801,7 +942,11 @@ function openTaskModal(taskId = null) {
     
     form.reset();
     document.getElementById('checklistItems').innerHTML = '';
-    populateUserDropdowns(); // Refresh user dropdown
+    populateUserDropdowns(); // Refresh user dropdown and watchers list
+    
+    // Reset and hide service dropdown by default
+    document.getElementById('serviceSelectContainer').classList.add('hidden');
+    document.getElementById('taskService').innerHTML = '<option value="">No Service</option>';
     
     if (taskId) {
         const task = tasks.find(t => t.id === taskId);
@@ -813,8 +958,26 @@ function openTaskModal(taskId = null) {
             document.getElementById('taskDueDate').value = task.dueDate || '';
             document.getElementById('taskPriority').value = task.priority;
             document.getElementById('taskProject').value = task.projectId || '';
-            document.getElementById('taskAssignedTo').value = task.assignedTo || '';
             document.getElementById('taskTags').value = task.tags || '';
+            
+            // Populate assigned users with pre-selected users
+            const assignedUsers = task.assignedTo || [];
+            // Handle legacy single assignedTo (string) or new assignedTo (array)
+            const assignedArray = Array.isArray(assignedUsers) ? assignedUsers : (assignedUsers ? [assignedUsers] : []);
+            populateAssignedToList(assignedArray);
+            
+            // Populate services if project is selected
+            if (task.projectId) {
+                populateServiceDropdown(task.projectId);
+                if (task.serviceId) {
+                    document.getElementById('taskService').value = task.serviceId;
+                }
+            }
+            
+            // Populate watchers with pre-selected users
+            if (task.watchers && Array.isArray(task.watchers)) {
+                populateWatchersList(task.watchers);
+            }
             
             if (task.checklist) {
                 task.checklist.forEach(item => {
@@ -862,14 +1025,26 @@ async function handleTaskSubmit(e) {
     const dueDate = document.getElementById('taskDueDate').value;
     const priority = document.getElementById('taskPriority').value;
     const projectId = document.getElementById('taskProject').value;
-    const assignedToField = document.getElementById('taskAssignedTo');
-    const assignedTo = assignedToField ? assignedToField.value : '';
+    const serviceId = document.getElementById('taskService').value;
     const tags = document.getElementById('taskTags').value;
+    
+    console.log('Task form values - Project:', projectId, 'Service:', serviceId);
     
     const checklistItems = Array.from(document.querySelectorAll('#checklistItems > div')).map(div => ({
         text: div.querySelector('input[type="text"]').value,
         completed: div.querySelector('input[type="checkbox"]').checked
     })).filter(item => item.text.trim() !== '');
+    
+    // Get selected assigned users
+    const assignedCheckboxes = document.querySelectorAll('#assignedToCheckboxList input[type="checkbox"]:checked');
+    const assignedTo = Array.from(assignedCheckboxes).map(cb => cb.value);
+    
+    // Get selected watchers
+    const watcherCheckboxes = document.querySelectorAll('#watchersCheckboxList input[type="checkbox"]:checked');
+    const watchers = Array.from(watcherCheckboxes).map(cb => cb.value);
+    
+    console.log('Selected assigned users:', assignedTo);
+    console.log('Selected watchers:', watchers);
     
     const taskData = {
         title,
@@ -879,16 +1054,18 @@ async function handleTaskSubmit(e) {
         projectId,
         tags,
         checklist: checklistItems,
+        assignedTo: assignedTo, // Array of assigned user IDs
+        watchers: watchers, // Array of watcher user IDs
         userId: currentUser.uid
     };
     
-    // Only add assignedTo if it has a value
-    if (assignedTo) {
-        taskData.assignedTo = assignedTo;
+    // Add serviceId from dropdown if selected
+    if (serviceId) {
+        taskData.serviceId = serviceId;
     }
     
-    // Add serviceId if creating task from service board
-    if (currentMainView === 'service-board' && currentServiceId) {
+    // Also add serviceId if creating task from service board (fallback)
+    if (currentMainView === 'service-board' && currentServiceId && !serviceId) {
         taskData.serviceId = currentServiceId;
     }
     
@@ -980,7 +1157,16 @@ function loadProjects() {
     if (!currentUser) return;
 
     const projectsRef = collection(db, 'projects');
-    const q = query(projectsRef, where('userId', '==', currentUser.uid));
+    
+    // Admins can see all projects, regular users only see their own
+    let q;
+    if (isAdmin) {
+        // Admin: Load ALL projects
+        q = query(projectsRef, orderBy('createdAt', 'desc'));
+    } else {
+        // Regular user: Load only their projects
+        q = query(projectsRef, where('userId', '==', currentUser.uid));
+    }
 
     unsubscribeProjects = onSnapshot(q, 
         (snapshot) => {
@@ -1134,6 +1320,37 @@ function renderProjects() {
         option.value = project.id;
         option.textContent = project.name;
         select.appendChild(option);
+    });
+}
+
+function handleProjectChange(e) {
+    const projectId = e.target.value;
+    const serviceContainer = document.getElementById('serviceSelectContainer');
+    const serviceSelect = document.getElementById('taskService');
+    
+    if (projectId) {
+        // Show service dropdown and populate it
+        populateServiceDropdown(projectId);
+        serviceContainer.classList.remove('hidden');
+    } else {
+        // Hide service dropdown
+        serviceContainer.classList.add('hidden');
+        serviceSelect.innerHTML = '<option value="">No Service</option>';
+    }
+}
+
+function populateServiceDropdown(projectId) {
+    const serviceSelect = document.getElementById('taskService');
+    serviceSelect.innerHTML = '<option value="">No Service</option>';
+    
+    // Filter services for selected project
+    const projectServices = services.filter(s => s.projectId === projectId);
+    
+    projectServices.forEach(service => {
+        const option = document.createElement('option');
+        option.value = service.id;
+        option.textContent = service.name;
+        serviceSelect.appendChild(option);
     });
 }
 
@@ -1385,15 +1602,19 @@ function toggleEverythingView(viewType) {
 }
 
 function renderEverythingView() {
+    console.log('=== renderEverythingView START ===');
+    
     const filteredTasks = getFilteredEverythingTasks();
+    console.log('Filtered tasks:', filteredTasks.length, 'of', tasks.length, 'total');
     
     // Update task count
-    document.getElementById('filteredTasksCount').textContent = filteredTasks.length;
+    const countElement = document.getElementById('filteredTasksCount');
+    if (countElement) countElement.textContent = filteredTasks.length;
     
     // Update sidebar badge count
     const everythingCountBadge = document.getElementById('everythingTaskCount');
     if (everythingCountBadge) {
-        everythingCountBadge.textContent = tasks.length; // Show total tasks
+        everythingCountBadge.textContent = tasks.length;
     }
     
     const listView = document.getElementById('everythingListView');
@@ -1401,18 +1622,23 @@ function renderEverythingView() {
     const emptyState = document.getElementById('everythingEmptyState');
     
     if (filteredTasks.length === 0) {
-        listView.innerHTML = '';
-        emptyState.classList.remove('hidden');
+        console.log('⚠️ No tasks to display in Everything view');
+        if (listView) listView.innerHTML = '';
+        if (emptyState) emptyState.classList.remove('hidden');
         return;
     }
     
-    emptyState.classList.add('hidden');
+    if (emptyState) emptyState.classList.add('hidden');
+    
+    console.log('Rendering in', everythingViewType, 'mode');
     
     if (everythingViewType === 'list') {
         renderEverythingListView(filteredTasks);
     } else {
         renderEverythingBoardView(filteredTasks);
     }
+    
+    console.log('=== renderEverythingView COMPLETE ===');
 }
 
 function renderEverythingListView(tasksList) {
@@ -1504,7 +1730,16 @@ function loadServices() {
     if (!currentUser) return;
 
     const servicesRef = collection(db, 'services');
-    const q = query(servicesRef, where('userId', '==', currentUser.uid));
+    
+    // Admins can see all services, regular users only see their own
+    let q;
+    if (isAdmin) {
+        // Admin: Load ALL services
+        q = query(servicesRef, orderBy('createdAt', 'desc'));
+    } else {
+        // Regular user: Load only their services
+        q = query(servicesRef, where('userId', '==', currentUser.uid));
+    }
 
     unsubscribeServices = onSnapshot(q, 
         (snapshot) => {
@@ -1678,17 +1913,40 @@ function renderServicesForProject(projectId) {
 }
 
 function getServiceTaskCount(serviceId) {
-    return tasks.filter(t => t.serviceId === serviceId).length;
+    const count = tasks.filter(t => t.serviceId === serviceId).length;
+    console.log('getServiceTaskCount for', serviceId, ':', count);
+    return count;
+}
+
+function updateServiceTaskCounts() {
+    // Update task counts for each service in the sidebar without full re-render
+    services.forEach(service => {
+        const serviceElements = document.querySelectorAll(`[data-service-id="${service.id}"] .task-count`);
+        const count = getServiceTaskCount(service.id);
+        serviceElements.forEach(el => {
+            if (el) el.textContent = count;
+        });
+    });
 }
 
 function openServiceBoard(serviceId) {
+    console.log('=== openServiceBoard called ===');
+    console.log('Opening service board for serviceId:', serviceId);
+    
     currentServiceId = serviceId;
     currentMainView = 'service-board';
     
     const service = services.find(s => s.id === serviceId);
     const project = projects.find(p => p.id === service.projectId);
     
-    if (!service) return;
+    console.log('Service found:', service ? service.name : 'NOT FOUND');
+    console.log('Project found:', project ? project.name : 'NOT FOUND');
+    console.log('Total tasks available:', tasks.length);
+    
+    if (!service) {
+        console.error('❌ Service not found with id:', serviceId);
+        return;
+    }
     
     // Hide all views
     document.getElementById('homeView').classList.add('hidden');
@@ -1706,76 +1964,113 @@ function openServiceBoard(serviceId) {
 }
 
 function renderServiceBoard() {
-    console.log('renderServiceBoard called, currentMainView:', currentMainView, 'currentServiceId:', currentServiceId);
+    console.log('=== renderServiceBoard START ===');
+    console.log('State:', {
+        currentMainView,
+        currentServiceId,
+        totalTasksInMemory: tasks.length
+    });
     
     if (currentMainView !== 'service-board' || !currentServiceId) {
-        console.log('Skipping renderServiceBoard - not in service-board view');
+        console.log('⚠️ Exiting - not in service-board view');
         return;
     }
     
-    const serviceTasks = tasks.filter(t => t.serviceId === currentServiceId);
-    console.log('Rendering service board with', serviceTasks.length, 'tasks for service:', currentServiceId);
+    // Filter tasks for this service
+    const serviceTasks = tasks.filter(t => {
+        const matches = t.serviceId === currentServiceId;
+        if (matches) {
+            console.log('✅ Task matched:', {
+                title: t.title,
+                serviceId: t.serviceId,
+                status: t.status
+            });
+        }
+        return matches;
+    });
+    
+    console.log(`Found ${serviceTasks.length} tasks for serviceId: ${currentServiceId}`);
+    
+    if (serviceTasks.length === 0) {
+        console.error('❌ NO TASKS FOUND');
+        console.log('Debug Info:', {
+            currentServiceId,
+            allServiceIds: [...new Set(tasks.map(t => t.serviceId).filter(Boolean))],
+            sampleTasks: tasks.slice(0, 3).map(t => ({
+                title: t.title,
+                serviceId: t.serviceId,
+                projectId: t.projectId
+            }))
+        });
+    }
+    
+    // Get column elements
+    const columns = {
+        todo: document.getElementById('serviceTodoColumn'),
+        progress: document.getElementById('serviceProgressColumn'),
+        checking: document.getElementById('serviceCheckingColumn'),
+        completed: document.getElementById('serviceCompletedColumn')
+    };
+    
+    // Verify columns exist
+    const missingColumns = Object.entries(columns)
+        .filter(([key, el]) => !el)
+        .map(([key]) => key);
+    
+    if (missingColumns.length > 0) {
+        console.error('❌ Missing columns:', missingColumns);
+        return;
+    }
     
     // Clear all columns
-    const todoCol = document.getElementById('serviceTodoColumn');
-    const progressCol = document.getElementById('serviceProgressColumn');
-    const checkingCol = document.getElementById('serviceCheckingColumn');
-    const completedCol = document.getElementById('serviceCompletedColumn');
+    Object.values(columns).forEach(col => col.innerHTML = '');
     
-    if (!todoCol || !progressCol || !checkingCol || !completedCol) {
-        console.error('Service board columns not found!');
-        return;
-    }
-    
-    todoCol.innerHTML = '';
-    progressCol.innerHTML = '';
-    checkingCol.innerHTML = '';
-    completedCol.innerHTML = '';
-    
-    let todoCount = 0, progressCount = 0, checkingCount = 0, completedCount = 0;
+    const counts = { todo: 0, progress: 0, checking: 0, completed: 0 };
     
     // Distribute tasks to columns
     serviceTasks.forEach(task => {
         const taskElement = createTaskElement(task, 'kanban');
         
-        console.log('Service task:', task.title, 'Status:', task.status);
+        // Normalize status and place in correct column
+        const status = task.status || 'todo';
         
-        switch (task.status) {
+        switch (status) {
             case 'todo':
-            case 'toAssign': // Map old toAssign to todo for backward compatibility
-                todoCol.appendChild(taskElement);
-                todoCount++;
+            case 'toAssign':
+                columns.todo.appendChild(taskElement);
+                counts.todo++;
                 break;
             case 'inProgress':
-                progressCol.appendChild(taskElement);
-                progressCount++;
+                columns.progress.appendChild(taskElement);
+                counts.progress++;
                 break;
             case 'clientChecking':
-                checkingCol.appendChild(taskElement);
-                checkingCount++;
+                columns.checking.appendChild(taskElement);
+                counts.checking++;
                 break;
             case 'completed':
-                completedCol.appendChild(taskElement);
-                completedCount++;
+                columns.completed.appendChild(taskElement);
+                counts.completed++;
                 break;
             default:
-                todoCol.appendChild(taskElement);
-                todoCount++;
+                console.warn('Unknown status:', status, 'for task:', task.title);
+                columns.todo.appendChild(taskElement);
+                counts.todo++;
         }
     });
     
-    console.log('Service board distribution - Todo:', todoCount, 'Progress:', progressCount, 'Checking:', checkingCount, 'Completed:', completedCount);
+    console.log('✅ Distribution:', counts);
     
-    // Update counts
-    document.getElementById('serviceTodoCount').textContent = todoCount;
-    document.getElementById('serviceProgressCount').textContent = progressCount;
-    document.getElementById('serviceCheckingCount').textContent = checkingCount;
-    document.getElementById('serviceCompletedCount').textContent = completedCount;
+    // Update count badges
+    document.getElementById('serviceTodoCount').textContent = counts.todo;
+    document.getElementById('serviceProgressCount').textContent = counts.progress;
+    document.getElementById('serviceCheckingCount').textContent = counts.checking;
+    document.getElementById('serviceCompletedCount').textContent = counts.completed;
     
     // Setup drag and drop
     setupDragAndDrop();
     
-    console.log('renderServiceBoard complete');
+    console.log('=== renderServiceBoard COMPLETE ===');
 }
 
 function backToProjectView() {
@@ -1794,33 +2089,29 @@ function openTaskModalForService() {
 // ============================================
 
 function switchView(view) {
-    console.log('switchView called with:', view);
+    console.log('=== switchView ===', view);
     currentView = view;
     currentMainView = view;
     
     // Hide home view when switching to list/kanban
     document.getElementById('homeView').classList.add('hidden');
     
+    // Toggle view visibility
     if (view === 'list') {
         document.getElementById('listView').classList.remove('hidden');
         document.getElementById('kanbanView').classList.add('hidden');
-        document.getElementById('listViewBtn').classList.add('bg-white', 'dark:bg-gray-600', 'text-purple-600', 'dark:text-purple-400');
-        document.getElementById('listViewBtn').classList.remove('text-gray-600', 'dark:text-gray-300');
-        document.getElementById('kanbanViewBtn').classList.remove('bg-white', 'dark:bg-gray-600', 'text-purple-600', 'dark:text-purple-400');
-        document.getElementById('kanbanViewBtn').classList.add('text-gray-600', 'dark:text-gray-300');
     } else if (view === 'kanban') {
         document.getElementById('listView').classList.add('hidden');
         document.getElementById('kanbanView').classList.remove('hidden');
-        document.getElementById('kanbanViewBtn').classList.add('bg-white', 'dark:bg-gray-600', 'text-purple-600', 'dark:text-purple-400');
-        document.getElementById('kanbanViewBtn').classList.remove('text-gray-600', 'dark:text-gray-300');
-        document.getElementById('listViewBtn').classList.remove('bg-white', 'dark:bg-gray-600', 'text-purple-600', 'dark:text-purple-400');
-        document.getElementById('listViewBtn').classList.add('text-gray-600', 'dark:text-gray-300');
     }
     
-    console.log('View switched to:', currentView, 'Main view:', currentMainView);
+    console.log('✅ View switched to:', currentView);
     
     // Remove home button highlight
-    document.getElementById('homeBtn').classList.remove('bg-purple-100', 'dark:bg-gray-700');
+    const homeBtn = document.getElementById('homeBtn');
+    if (homeBtn) {
+        homeBtn.classList.remove('bg-purple-100', 'dark:bg-gray-700');
+    }
     
     renderTasks();
 }
@@ -2219,10 +2510,19 @@ function renderAssignedToMe() {
     // 1. Specifically assigned to current user
     // 2. Assigned to everyone (__ALL__)
     // 3. Incomplete
-    const assignedTasks = tasks.filter(task => 
-        task.status !== 'completed' && 
-        (task.assignedTo === currentUser.uid || task.assignedTo === '__ALL__')
-    );
+    const assignedTasks = tasks.filter(task => {
+        if (task.status === 'completed') return false;
+        
+        if (!task.assignedTo) return false;
+        
+        // Handle new format (array)
+        if (Array.isArray(task.assignedTo)) {
+            return task.assignedTo.includes(currentUser.uid);
+        }
+        
+        // Handle legacy format (string)
+        return task.assignedTo === currentUser.uid || task.assignedTo === '__ALL__';
+    });
     
     const container = document.getElementById('assignedToMeList');
     const emptyState = document.getElementById('noAssignedTasks');
