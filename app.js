@@ -41,7 +41,7 @@ let isAdmin = false; // Track if current user is admin
 let currentUserData = null; // Store full user data including role
 
 // Admin emails
-const ADMIN_EMAILS = ['mftadmin@mft.com', 'mftaccountmanager@mft.com', 'ranonaaccountmanger@mft.com'];
+const ADMIN_EMAILS = ['mftadmin@mft.com', 'HaydiMikhail@mft.com', 'ranonaaccountmanger@mft.com'];
 let unsubscribeTasks = null;
 let unsubscribeProjects = null;
 let unsubscribeServices = null;
