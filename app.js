@@ -9,6 +9,7 @@ import {
 import { 
     collection, 
     addDoc, 
+    setDoc,
     updateDoc, 
     deleteDoc, 
     doc, 
@@ -41,11 +42,12 @@ let isAdmin = false; // Track if current user is admin
 let currentUserData = null; // Store full user data including role
 
 // Admin emails
-const ADMIN_EMAILS = ['mftadmin@mft.com', 'haydimikhail@mft.com', 'ranonaaccountmanger@mft.com'];
+const ADMIN_EMAILS = ['mftadmin@mft.com', 'HaydiMikhail@mft.com', 'ranonaaccountmanger@mft.com'];
 let unsubscribeTasks = null;
 let unsubscribeProjects = null;
 let unsubscribeServices = null;
 let unsubscribeUsers = null;
+let unsubscribeNotifications = null;
 let notifications = [];
 let lastTaskCount = 0;
 let currentWorkTab = 'todo'; // todo or done
@@ -88,6 +90,7 @@ function initializeAuth() {
             loadProjects();
             loadServices();
             loadTasks();
+            loadNotifications();
         } else {
             currentUser = null;
             isAdmin = false;
@@ -100,15 +103,36 @@ function initializeAuth() {
 
 async function loadCurrentUserData() {
     try {
-        const usersRef = collection(db, 'users');
-        const q = query(usersRef, where('uid', '==', currentUser.uid));
-        const snapshot = await getDocs(q);
+        // Try to get user document using UID as document ID
+        const userDocRef = doc(db, 'users', currentUser.uid);
+        const userDoc = await getDocs(query(collection(db, 'users'), where('uid', '==', currentUser.uid)));
         
-        if (!snapshot.empty) {
-            currentUserData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+        if (!userDoc.empty) {
+            currentUserData = { id: userDoc.docs[0].id, ...userDoc.docs[0].data() };
+            console.log('✅ User data loaded:', currentUserData.email);
+        } else {
+            // User document doesn't exist - create it now (for existing accounts)
+            console.log('⚠️ User document not found, creating...');
+            const userIsAdmin = ADMIN_EMAILS.includes(currentUser.email.toLowerCase());
+            
+            await setDoc(doc(db, 'users', currentUser.uid), {
+                uid: currentUser.uid,
+                email: currentUser.email,
+                displayName: currentUser.email.split('@')[0],
+                role: userIsAdmin ? 'admin' : 'user',
+                createdAt: serverTimestamp()
+            });
+            
+            console.log('✅ User document created for existing account:', currentUser.email);
+            
+            // Load again
+            const newUserDoc = await getDocs(query(collection(db, 'users'), where('uid', '==', currentUser.uid)));
+            if (!newUserDoc.empty) {
+                currentUserData = { id: newUserDoc.docs[0].id, ...newUserDoc.docs[0].data() };
+            }
         }
     } catch (error) {
-        console.error('Error loading current user data:', error);
+        console.error('Error loading/creating current user data:', error);
     }
 }
 
@@ -127,10 +151,13 @@ function cleanup() {
     if (unsubscribeProjects) unsubscribeProjects();
     if (unsubscribeServices) unsubscribeServices();
     if (unsubscribeUsers) unsubscribeUsers();
+    if (unsubscribeNotifications) unsubscribeNotifications();
     tasks = [];
     projects = [];
     services = [];
     users = [];
+    inboxItems = [];
+    notifications = [];
 }
 
 // ============================================
@@ -307,8 +334,8 @@ async function handleSignup(e) {
         // Check if user is admin
         const userIsAdmin = ADMIN_EMAILS.includes(email.toLowerCase());
         
-        // Create user document in Firestore
-        await addDoc(collection(db, 'users'), {
+        // Create user document in Firestore using user.uid as document ID
+        await setDoc(doc(db, 'users', user.uid), {
             uid: user.uid,
             email: user.email,
             displayName: email.split('@')[0], // Use email prefix as display name
@@ -316,8 +343,10 @@ async function handleSignup(e) {
             createdAt: serverTimestamp()
         });
         
+        console.log('✅ User document created for:', user.email);
         showNotification(userIsAdmin ? 'Admin account created successfully!' : 'Account created successfully!', 'success');
     } catch (error) {
+        console.error('Signup error:', error);
         showNotification(error.message, 'error');
     }
 }
@@ -332,6 +361,80 @@ async function handleLogout() {
 }
 
 // ============================================
+// Notifications Management
+// ============================================
+
+function loadNotifications() {
+    if (!currentUser) return;
+    
+    const notificationsRef = collection(db, 'notifications');
+    const q = query(
+        notificationsRef, 
+        where('recipientUid', '==', currentUser.uid),
+        orderBy('timestamp', 'desc')
+    );
+    
+    unsubscribeNotifications = onSnapshot(q,
+        (snapshot) => {
+            console.log('=== Notifications Loading ===');
+            console.log('Notifications found for', currentUser.email, ':', snapshot.size);
+            
+            inboxItems = [];
+            snapshot.forEach((doc) => {
+                const notifData = { id: doc.id, ...doc.data() };
+                console.log('  - Notification:', notifData.title);
+                inboxItems.push(notifData);
+            });
+            
+            console.log('✅ Total notifications loaded:', inboxItems.length);
+            updateInboxBadge();
+            
+            // Render inbox if currently viewing it
+            if (currentMainView === 'inbox') {
+                renderInbox();
+            }
+        },
+        (error) => {
+            // If index doesn't exist, try without orderBy
+            if (error.code === 'failed-precondition' || error.message.includes('index')) {
+                console.log('⚠️ Retrying notifications without orderBy...');
+                const simpleQuery = query(
+                    notificationsRef,
+                    where('recipientUid', '==', currentUser.uid)
+                );
+                
+                unsubscribeNotifications = onSnapshot(simpleQuery, (snapshot) => {
+                    console.log('Notifications loaded (simple query):', snapshot.size);
+                    inboxItems = [];
+                    
+                    snapshot.forEach((doc) => {
+                        inboxItems.push({ id: doc.id, ...doc.data() });
+                    });
+                    
+                    // Sort manually by timestamp
+                    inboxItems.sort((a, b) => {
+                        if (!a.timestamp) return 1;
+                        if (!b.timestamp) return -1;
+                        const aTime = a.timestamp.seconds || a.timestamp.getTime() / 1000;
+                        const bTime = b.timestamp.seconds || b.timestamp.getTime() / 1000;
+                        return bTime - aTime;
+                    });
+                    
+                    console.log('✅ Notifications sorted and loaded:', inboxItems.length);
+                    updateInboxBadge();
+                    
+                    if (currentMainView === 'inbox') {
+                        renderInbox();
+                    }
+                });
+            } else {
+                console.error('Error loading notifications:', error);
+            }
+        }
+    );
+}
+
+// ============================================
 // User Functions
 // ============================================
 
@@ -342,12 +445,28 @@ function loadUsers() {
     
     unsubscribeUsers = onSnapshot(usersRef, 
         (snapshot) => {
-            console.log('Users loaded:', snapshot.size);
+            console.log('=== Users Loading ===');
+            console.log('Users found in Firestore:', snapshot.size);
+            
             users = [];
             snapshot.forEach((doc) => {
-                users.push({ id: doc.id, ...doc.data() });
+                const userData = { id: doc.id, ...doc.data() };
+                console.log('  - User:', userData.email, '(uid:', userData.uid, ')');
+                users.push(userData);
             });
-            populateUserDropdowns();
+            
+            // Remove any duplicates based on uid
+            const uniqueUsers = Array.from(new Map(users.map(u => [u.uid, u])).values());
+            users = uniqueUsers;
+            
+            console.log('✅ Total unique users loaded:', users.length);
+            
+            // Only populate dropdowns if we have users
+            if (users.length > 0) {
+                populateUserDropdowns();
+            } else {
+                console.warn('⚠️ No users in database! Users will be auto-created on login.');
+            }
         },
         (error) => {
             console.error('Error loading users:', error);
@@ -366,6 +485,7 @@ function populateAssignedToList(selectedAssignees = []) {
     const assignedContainer = document.getElementById('assignedToCheckboxList');
     if (!assignedContainer) return;
     
+    // Clear container completely to prevent duplicates
     assignedContainer.innerHTML = '';
     
     if (users.length === 0) {
@@ -373,8 +493,14 @@ function populateAssignedToList(selectedAssignees = []) {
         return;
     }
     
-    // Add checkbox for each user
-    users.forEach(user => {
+    console.log('Populating assigned list with', users.length, 'users');
+    console.log('Pre-selected assignees:', selectedAssignees);
+    
+    // Create unique list to prevent duplicates
+    const uniqueUsers = Array.from(new Map(users.map(user => [user.uid, user])).values());
+    
+    // Add checkbox for each unique user
+    uniqueUsers.forEach(user => {
         const div = document.createElement('div');
         div.className = 'flex items-center space-x-2 hover:bg-gray-50 dark:hover:bg-gray-600 p-2 rounded';
         
@@ -394,12 +520,15 @@ function populateAssignedToList(selectedAssignees = []) {
         div.appendChild(label);
         assignedContainer.appendChild(div);
     });
+    
+    console.log('✅ Assigned list populated with', uniqueUsers.length, 'unique users');
 }
 
 function populateWatchersList(selectedWatchers = []) {
     const watchersContainer = document.getElementById('watchersCheckboxList');
     if (!watchersContainer) return;
     
+    // Clear container completely to prevent duplicates
     watchersContainer.innerHTML = '';
     
     if (users.length === 0) {
@@ -407,8 +536,14 @@ function populateWatchersList(selectedWatchers = []) {
         return;
     }
     
-    // Add checkbox for each user
-    users.forEach(user => {
+    console.log('Populating watchers list with', users.length, 'users');
+    console.log('Pre-selected watchers:', selectedWatchers);
+    
+    // Create unique list to prevent duplicates
+    const uniqueUsers = Array.from(new Map(users.map(user => [user.uid, user])).values());
+    
+    // Add checkbox for each unique user
+    uniqueUsers.forEach(user => {
         const div = document.createElement('div');
         div.className = 'flex items-center space-x-2 hover:bg-gray-50 dark:hover:bg-gray-600 p-2 rounded';
         
@@ -428,6 +563,8 @@ function populateWatchersList(selectedWatchers = []) {
         div.appendChild(label);
         watchersContainer.appendChild(div);
     });
+    
+    console.log('✅ Watchers list populated with', uniqueUsers.length, 'unique users');
 }
 
 // ============================================
@@ -439,15 +576,8 @@ function loadTasks() {
 
     const tasksRef = collection(db, 'tasks');
     
-    // Admins can see all tasks, regular users only see their own
-    let q;
-    if (isAdmin) {
-        // Admin: Load ALL tasks
-        q = query(tasksRef, orderBy('createdAt', 'desc'));
-    } else {
-        // Regular user: Load only their tasks
-        q = query(tasksRef, where('userId', '==', currentUser.uid), orderBy('createdAt', 'desc'));
-    }
+    // ALL authenticated users can see all tasks
+    const q = query(tasksRef, orderBy('createdAt', 'desc'));
 
     unsubscribeTasks = onSnapshot(q, 
         (snapshot) => {
@@ -517,9 +647,8 @@ function loadTasks() {
                     // If orderBy fails (missing index), try without it
                     if (error.code === 'failed-precondition' || error.message.includes('index')) {
                         console.log('Retrying without orderBy due to missing index...');
-                        const simpleQuery = isAdmin 
-                            ? query(tasksRef) // Admin sees all
-                            : query(tasksRef, where('userId', '==', currentUser.uid)); // Regular user
+                        // ALL users see all tasks
+                        const simpleQuery = query(tasksRef);
                 
                 unsubscribeTasks = onSnapshot(simpleQuery, (snapshot) => {
                     console.log('Tasks loaded (simple query):', snapshot.size);
@@ -766,6 +895,7 @@ function createTaskElement(task, viewType) {
     
     // Handle assignedTo - can be array (new) or string (legacy)
     let assignedToText = '';
+    let assignedTooltip = '';
     let assignedBadgeClass = 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300';
     let assignedIcon = 'fa-user';
     
@@ -773,15 +903,19 @@ function createTaskElement(task, viewType) {
         if (Array.isArray(task.assignedTo)) {
             // New format: array of user IDs
             if (task.assignedTo.length > 0) {
-                const assignedNames = task.assignedTo.map(uid => getAssignedUserName(uid));
-                assignedToText = task.assignedTo.length === 1 
-                    ? assignedNames[0]
-                    : `${task.assignedTo.length} Users`;
-                assignedIcon = task.assignedTo.length > 1 ? 'fa-users' : 'fa-user';
+                const assignedNames = task.assignedTo.map(uid => getAssignedUserName(uid)).filter(name => name && name !== 'Unknown User');
+                if (assignedNames.length > 0) {
+                    assignedToText = assignedNames.length === 1 
+                        ? assignedNames[0]
+                        : `${assignedNames.length} Assigned`;
+                    assignedTooltip = assignedNames.join(', ');
+                    assignedIcon = assignedNames.length > 1 ? 'fa-users' : 'fa-user';
+                }
             }
-        } else {
+        } else if (task.assignedTo) {
             // Legacy format: single user ID or __ALL__
             assignedToText = getAssignedUserName(task.assignedTo);
+            assignedTooltip = assignedToText;
             const isAssignedToAll = task.assignedTo === '__ALL__';
             assignedIcon = isAssignedToAll ? 'fa-users' : 'fa-user';
         }
@@ -812,7 +946,7 @@ function createTaskElement(task, viewType) {
                         ${dueDateText ? `<span class="text-xs ${isOverdue ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}"><i class="far fa-calendar mr-1"></i>${dueDateText}</span>` : ''}
                         ${checklistProgress ? `<span class="text-xs text-gray-500 dark:text-gray-400"><i class="far fa-check-square mr-1"></i>${checklistProgress}</span>` : ''}
                         ${task.projectId ? `<span class="text-xs text-gray-500 dark:text-gray-400"><i class="fas fa-folder mr-1"></i>${getProjectName(task.projectId)}</span>` : ''}
-                        ${assignedToText ? `<span class="text-xs px-2 py-1 ${assignedBadgeClass} rounded-full"><i class="fas ${assignedIcon} mr-1"></i>${assignedToText}</span>` : ''}
+                        ${assignedToText ? `<span class="text-xs px-2 py-1 ${assignedBadgeClass} rounded-full" title="${assignedTooltip}"><i class="fas ${assignedIcon} mr-1"></i>${assignedToText}</span>` : ''}
                         ${watchersBadge}
                         ${taskOwnerBadge}
                     </div>
@@ -942,13 +1076,17 @@ function openTaskModal(taskId = null) {
     
     form.reset();
     document.getElementById('checklistItems').innerHTML = '';
-    populateUserDropdowns(); // Refresh user dropdown and watchers list
+    
+    // Clear containers first to prevent duplicates
+    document.getElementById('assignedToCheckboxList').innerHTML = '';
+    document.getElementById('watchersCheckboxList').innerHTML = '';
     
     // Reset and hide service dropdown by default
     document.getElementById('serviceSelectContainer').classList.add('hidden');
     document.getElementById('taskService').innerHTML = '<option value="">No Service</option>';
     
     if (taskId) {
+        // EDITING existing task
         const task = tasks.find(t => t.id === taskId);
         if (task) {
             document.getElementById('modalTitle').textContent = 'Edit Task';
@@ -977,6 +1115,9 @@ function openTaskModal(taskId = null) {
             // Populate watchers with pre-selected users
             if (task.watchers && Array.isArray(task.watchers)) {
                 populateWatchersList(task.watchers);
+            } else {
+                // No watchers selected, populate empty list
+                populateWatchersList([]);
             }
             
             if (task.checklist) {
@@ -988,8 +1129,13 @@ function openTaskModal(taskId = null) {
             deleteBtn.classList.remove('hidden');
         }
     } else {
+        // CREATING new task - populate empty lists
         document.getElementById('modalTitle').textContent = 'New Task';
         deleteBtn.classList.add('hidden');
+        
+        // Populate both lists with no selections
+        populateAssignedToList([]);
+        populateWatchersList([]);
     }
     
     modal.classList.add('active');
@@ -1030,21 +1176,40 @@ async function handleTaskSubmit(e) {
     
     console.log('Task form values - Project:', projectId, 'Service:', serviceId);
     
+    // VALIDATION: Require Project and Service (unless creating from service board)
+    if (currentMainView !== 'service-board') {
+        if (!projectId) {
+            showNotification('⚠️ Please select a Client (Project)', 'error');
+            return;
+        }
+        
+        if (!serviceId) {
+            showNotification('⚠️ Please select a Service for this task', 'error');
+            // Highlight the service container
+            document.getElementById('serviceSelectContainer').classList.add('ring-2', 'ring-red-500');
+            setTimeout(() => {
+                document.getElementById('serviceSelectContainer').classList.remove('ring-2', 'ring-red-500');
+            }, 2000);
+            return;
+        }
+    }
+    
     const checklistItems = Array.from(document.querySelectorAll('#checklistItems > div')).map(div => ({
         text: div.querySelector('input[type="text"]').value,
         completed: div.querySelector('input[type="checkbox"]').checked
     })).filter(item => item.text.trim() !== '');
     
-    // Get selected assigned users
+    // Get selected assigned users and remove duplicates
     const assignedCheckboxes = document.querySelectorAll('#assignedToCheckboxList input[type="checkbox"]:checked');
-    const assignedTo = Array.from(assignedCheckboxes).map(cb => cb.value);
+    const assignedTo = [...new Set(Array.from(assignedCheckboxes).map(cb => cb.value))];
     
-    // Get selected watchers
+    // Get selected watchers and remove duplicates
     const watcherCheckboxes = document.querySelectorAll('#watchersCheckboxList input[type="checkbox"]:checked');
-    const watchers = Array.from(watcherCheckboxes).map(cb => cb.value);
+    const watchers = [...new Set(Array.from(watcherCheckboxes).map(cb => cb.value))];
     
-    console.log('Selected assigned users:', assignedTo);
-    console.log('Selected watchers:', watchers);
+    console.log('Selected assigned users (unique):', assignedTo);
+    console.log('Selected watchers (unique):', watchers);
+    console.log('✅ Validation passed - Project and Service selected');
     
     const taskData = {
         title,
@@ -1088,12 +1253,38 @@ async function handleTaskSubmit(e) {
             
             // Create inbox notification for assigned user(s)
             if (assignedTo) {
-                if (assignedTo === '__ALL__') {
+                // Handle array format (new) - multiple assigned users
+                if (Array.isArray(assignedTo)) {
+                    console.log('Sending notifications to assigned users:', assignedTo);
+                    assignedTo.forEach(userId => {
+                        // Don't notify the creator
+                        if (userId !== currentUser.uid) {
+                            const assignedUser = users.find(u => u.uid === userId);
+                            if (assignedUser) {
+                                addInboxItem({
+                                    id: `assign-${userId}-${newTask.id}-${Date.now()}`,
+                                    recipientUid: userId, // ← ADDED for Firestore
+                                    type: 'assigned',
+                                    title: 'New Task Assigned',
+                                    message: `${currentUser.email} assigned you: "${title}"`,
+                                    taskId: newTask.id,
+                                    timestamp: new Date(),
+                                    read: false,
+                                    urgent: false
+                                });
+                                console.log('✅ Notification sent to:', assignedUser.email);
+                            }
+                        }
+                    });
+                }
+                // Handle legacy string format
+                else if (assignedTo === '__ALL__') {
                     // Notify all users except the creator
                     users.forEach(user => {
                         if (user.uid !== currentUser.uid) {
                             addInboxItem({
                                 id: `assign-all-${user.uid}-${Date.now()}`,
+                                recipientUid: user.uid, // ← ADDED
                                 type: 'assigned',
                                 title: 'New Task Assigned to All',
                                 message: `${currentUser.email} assigned everyone: "${title}"`,
@@ -1105,11 +1296,12 @@ async function handleTaskSubmit(e) {
                         }
                     });
                 } else if (assignedTo !== currentUser.uid) {
-                    // Notify specific user
+                    // Notify specific user (legacy single string format)
                     const assignedUser = users.find(u => u.uid === assignedTo);
                     if (assignedUser) {
                         addInboxItem({
                             id: `assign-${Date.now()}`,
+                            recipientUid: assignedUser.uid, // ← ADDED
                             type: 'assigned',
                             title: 'New Task Assigned',
                             message: `${currentUser.email} assigned you: "${title}"`,
@@ -1158,15 +1350,8 @@ function loadProjects() {
 
     const projectsRef = collection(db, 'projects');
     
-    // Admins can see all projects, regular users only see their own
-    let q;
-    if (isAdmin) {
-        // Admin: Load ALL projects
-        q = query(projectsRef, orderBy('createdAt', 'desc'));
-    } else {
-        // Regular user: Load only their projects
-        q = query(projectsRef, where('userId', '==', currentUser.uid));
-    }
+    // ALL authenticated users can see all projects (clients)
+    const q = query(projectsRef, orderBy('createdAt', 'desc'));
 
     unsubscribeProjects = onSnapshot(q, 
         (snapshot) => {
@@ -1731,15 +1916,8 @@ function loadServices() {
 
     const servicesRef = collection(db, 'services');
     
-    // Admins can see all services, regular users only see their own
-    let q;
-    if (isAdmin) {
-        // Admin: Load ALL services
-        q = query(servicesRef, orderBy('createdAt', 'desc'));
-    } else {
-        // Regular user: Load only their services
-        q = query(servicesRef, where('userId', '==', currentUser.uid));
-    }
+    // ALL authenticated users can see all services
+    const q = query(servicesRef, orderBy('createdAt', 'desc'));
 
     unsubscribeServices = onSnapshot(q, 
         (snapshot) => {
@@ -2700,12 +2878,31 @@ function formatTimeLeft(dueDate) {
     return `in ${days} days`;
 }
 
-function addInboxItem(item) {
-    // Don't add duplicates
+async function addInboxItem(item) {
+    // Don't add duplicates locally
     if (inboxItems.find(i => i.id === item.id)) return;
     
     inboxItems.unshift(item);
     updateInboxBadge();
+    
+    // Save notification to Firestore for the recipient
+    try {
+        if (item.recipientUid) {
+            await addDoc(collection(db, 'notifications'), {
+                recipientUid: item.recipientUid,
+                type: item.type,
+                title: item.title,
+                message: item.message,
+                taskId: item.taskId,
+                timestamp: serverTimestamp(),
+                read: false,
+                urgent: item.urgent || false
+            });
+            console.log('✅ Notification saved to Firestore for user:', item.recipientUid);
+        }
+    } catch (error) {
+        console.error('Error saving notification to Firestore:', error);
+    }
     
     // Add to notification panel as well
     addNotification({
@@ -2761,43 +2958,157 @@ function markAllInboxRead() {
 }
 
 function renderInbox() {
-    let filteredItems = [...inboxItems];
-    
-    // Apply filters
-    switch (currentInboxFilter) {
-        case 'deadlines':
-            filteredItems = filteredItems.filter(item => item.type === 'deadline');
-            break;
-        case 'assigned':
-            filteredItems = filteredItems.filter(item => item.type === 'assigned');
-            break;
-        case 'unread':
-            filteredItems = filteredItems.filter(item => !item.read);
-            break;
-    }
+    console.log('=== Rendering Inbox ===');
+    console.log('Current filter:', currentInboxFilter);
+    console.log('Total inbox notifications:', inboxItems.length);
     
     const container = document.getElementById('inboxItemsList');
     const emptyState = document.getElementById('emptyInbox');
     
-    // Update counts
-    document.getElementById('inboxAllCount').textContent = inboxItems.length;
-    document.getElementById('inboxDeadlinesCount').textContent = inboxItems.filter(i => i.type === 'deadline').length;
-    document.getElementById('inboxAssignedCount').textContent = inboxItems.filter(i => i.type === 'assigned').length;
-    document.getElementById('inboxUnreadCount').textContent = inboxItems.filter(i => !i.read).length;
-    
-    if (filteredItems.length === 0) {
-        container.innerHTML = '';
-        emptyState.classList.remove('hidden');
+    if (!container) {
+        console.error('❌ Inbox container not found!');
         return;
     }
     
-    emptyState.classList.add('hidden');
+    // Get tasks assigned to current user
+    const assignedTasks = tasks.filter(task => {
+        if (!task.assignedTo) return false;
+        
+        // Handle array format
+        if (Array.isArray(task.assignedTo)) {
+            return task.assignedTo.includes(currentUser.uid);
+        }
+        
+        // Handle legacy format
+        return task.assignedTo === currentUser.uid || task.assignedTo === '__ALL__';
+    });
+    
+    console.log('Tasks assigned to me:', assignedTasks.length);
+    
+    // Combine notifications and assigned tasks
+    let displayItems = [];
+    
+    if (currentInboxFilter === 'all' || currentInboxFilter === 'assigned') {
+        // Add assigned tasks as inbox items
+        assignedTasks.forEach(task => {
+            displayItems.push({
+                id: `task-${task.id}`,
+                type: 'task',
+                taskType: 'assigned',
+                title: '📋 ' + task.title,
+                message: `Status: ${task.status || 'todo'} | Due: ${task.dueDate ? formatDate(new Date(task.dueDate)) : 'No due date'}`,
+                taskId: task.id,
+                task: task,
+                timestamp: task.createdAt || new Date(),
+                read: task.status === 'completed'
+            });
+        });
+    }
+    
+    // Add notifications
+    let filteredNotifications = [...inboxItems];
+    if (currentInboxFilter !== 'all') {
+        filteredNotifications = filteredNotifications.filter(item => {
+            switch (currentInboxFilter) {
+                case 'deadlines':
+                    return item.type === 'deadline';
+                case 'assigned':
+                    return item.type === 'assigned';
+                case 'unread':
+                    return !item.read;
+                default:
+                    return true;
+            }
+        });
+    }
+    
+    displayItems = [...displayItems, ...filteredNotifications];
+    
+    // Sort by timestamp (newest first)
+    displayItems.sort((a, b) => {
+        const aTime = a.timestamp?.seconds || a.timestamp?.getTime() / 1000 || 0;
+        const bTime = b.timestamp?.seconds || b.timestamp?.getTime() / 1000 || 0;
+        return bTime - aTime;
+    });
+    
+    // Update counts
+    const totalNotifications = inboxItems.length + assignedTasks.length;
+    document.getElementById('inboxAllCount').textContent = totalNotifications;
+    document.getElementById('inboxDeadlinesCount').textContent = inboxItems.filter(i => i.type === 'deadline').length;
+    document.getElementById('inboxAssignedCount').textContent = assignedTasks.length + inboxItems.filter(i => i.type === 'assigned').length;
+    document.getElementById('inboxUnreadCount').textContent = inboxItems.filter(i => !i.read).length + assignedTasks.filter(t => t.status !== 'completed').length;
+    
+    console.log('📋 Displaying', displayItems.length, 'items in inbox');
+    
+    if (displayItems.length === 0) {
+        container.innerHTML = '';
+        if (emptyState) emptyState.classList.remove('hidden');
+        return;
+    }
+    
+    if (emptyState) emptyState.classList.add('hidden');
     container.innerHTML = '';
     
-    filteredItems.forEach(item => {
-        const div = createInboxItemCard(item);
+    displayItems.forEach(item => {
+        const div = item.type === 'task' 
+            ? createInboxTaskCard(item)
+            : createInboxItemCard(item);
         container.appendChild(div);
     });
+    
+    console.log('✅ Inbox rendered');
+}
+
+function createInboxTaskCard(item) {
+    const div = document.createElement('div');
+    const task = item.task;
+    
+    const statusColors = {
+        todo: 'border-l-4 border-gray-400 bg-gray-50 dark:bg-gray-800',
+        inProgress: 'border-l-4 border-blue-500 bg-blue-50 dark:bg-blue-900 dark:bg-opacity-20',
+        clientChecking: 'border-l-4 border-orange-500 bg-orange-50 dark:bg-orange-900 dark:bg-opacity-20',
+        completed: 'border-l-4 border-green-500 bg-green-50 dark:bg-green-900 dark:bg-opacity-20'
+    };
+    
+    const statusIcons = {
+        todo: 'fa-circle',
+        inProgress: 'fa-spinner',
+        clientChecking: 'fa-eye',
+        completed: 'fa-check-circle'
+    };
+    
+    const status = task.status || 'todo';
+    const isCompleted = status === 'completed';
+    
+    div.className = `${statusColors[status]} rounded-lg p-4 cursor-pointer hover:shadow-md transition`;
+    
+    div.innerHTML = `
+        <div class="flex items-start space-x-3">
+            <div class="flex-shrink-0 w-10 h-10 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center">
+                <i class="fas ${statusIcons[status]} text-purple-600 dark:text-purple-400"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center space-x-2 mb-1">
+                    <span class="inline-block px-2 py-1 text-xs font-semibold rounded ${isCompleted ? 'bg-green-200 dark:bg-green-900 text-green-800 dark:text-green-200' : 'bg-purple-200 dark:bg-purple-900 text-purple-800 dark:text-purple-200'}">
+                        ASSIGNED TASK
+                    </span>
+                    ${!isCompleted ? '<div class="w-2 h-2 bg-purple-600 rounded-full"></div>' : ''}
+                </div>
+                <h3 class="text-sm font-semibold text-gray-800 dark:text-white mb-1 ${isCompleted ? 'line-through opacity-60' : ''}">${escapeHtml(task.title)}</h3>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mb-2">${item.message}</p>
+                <div class="flex items-center space-x-3 text-xs text-gray-500 dark:text-gray-400">
+                    <span><i class="fas fa-folder mr-1"></i>${task.projectId ? getProjectName(task.projectId) : 'No project'}</span>
+                    ${task.priority ? `<span class="px-2 py-0.5 rounded ${getPriorityBadgeClass(task.priority)}">${task.priority}</span>` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+    
+    div.addEventListener('click', () => {
+        openTaskModal(task.id);
+    });
+    
+    return div;
 }
 
 function createInboxItemCard(item) {
@@ -2869,16 +3180,40 @@ function createInboxItemCard(item) {
 
 function updateInboxBadge() {
     const badge = document.getElementById('inboxBadge');
-    const sidebarBadge = document.getElementById('inboxBadge');
-    const unreadCount = inboxItems.filter(item => !item.read).length;
     
-    if (unreadCount > 0) {
-        badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+    if (!badge) return;
+    
+    // Count unread notifications
+    const unreadNotifications = inboxItems.filter(item => !item.read).length;
+    
+    // Count incomplete assigned tasks
+    const incompleteAssignedTasks = tasks.filter(task => {
+        if (task.status === 'completed') return false;
+        if (!task.assignedTo) return false;
+        
+        // Handle array format
+        if (Array.isArray(task.assignedTo)) {
+            return task.assignedTo.includes(currentUser.uid);
+        }
+        
+        // Handle legacy format
+        return task.assignedTo === currentUser.uid || task.assignedTo === '__ALL__';
+    }).length;
+    
+    // Total count = notifications + assigned tasks
+    const totalCount = unreadNotifications + incompleteAssignedTasks;
+    
+    console.log('📬 Inbox badge update:', {
+        unreadNotifications,
+        incompleteAssignedTasks,
+        totalCount
+    });
+    
+    if (totalCount > 0) {
+        badge.textContent = totalCount > 99 ? '99+' : totalCount;
         badge.classList.remove('hidden');
-        sidebarBadge.classList.remove('hidden');
     } else {
         badge.classList.add('hidden');
-        sidebarBadge.classList.add('hidden');
     }
 }
 
