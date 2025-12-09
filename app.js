@@ -954,7 +954,15 @@ function createTaskElement(task, viewType) {
                 </div>
             </div>
             <div class="flex items-center space-x-2">
-                ${viewType === 'list' ? `<span class="text-xs px-2 py-1 rounded ${getPriorityBadgeClass(task.priority)}">${task.priority}</span>` : ''}
+                ${viewType === 'list' ? `
+                    <select class="task-status-dropdown text-xs px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none font-medium ${getStatusBadgeClass(task.status || 'todo')}" data-task-id="${task.id}">
+                        <option value="todo" ${task.status === 'todo' || !task.status ? 'selected' : ''}>📝 To Do</option>
+                        <option value="inProgress" ${task.status === 'inProgress' ? 'selected' : ''}>🔄 In Progress</option>
+                        <option value="clientChecking" ${task.status === 'clientChecking' ? 'selected' : ''}>👁️ Client Checking</option>
+                        <option value="completed" ${task.status === 'completed' ? 'selected' : ''}>✅ Completed</option>
+                    </select>
+                    <span class="text-xs px-2 py-1 rounded ${getPriorityBadgeClass(task.priority)}">${task.priority}</span>
+                ` : ''}
                 <button class="task-delete-btn opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded hover:bg-red-100 dark:hover:bg-red-900 transition" title="Delete task">
                     <i class="fas fa-trash text-xs text-red-600 dark:text-red-400"></i>
                 </button>
@@ -968,6 +976,38 @@ function createTaskElement(task, viewType) {
         e.stopPropagation();
         toggleTaskComplete(task.id);
     });
+    
+    // Add status dropdown event listener (only in list view)
+    const statusDropdown = div.querySelector('.task-status-dropdown');
+    if (statusDropdown) {
+        statusDropdown.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent opening task modal
+        });
+        
+        statusDropdown.addEventListener('change', async (e) => {
+            e.stopPropagation();
+            const newStatus = e.target.value;
+            const taskId = e.target.dataset.taskId;
+            
+            console.log('Changing task status to:', newStatus);
+            
+            try {
+                await updateDoc(doc(db, 'tasks', taskId), {
+                    status: newStatus,
+                    updatedAt: serverTimestamp()
+                });
+                
+                // Update dropdown color
+                e.target.className = e.target.className.replace(/bg-\w+-100|text-\w+-700|dark:bg-\w+-900|dark:text-\w+-300/g, '');
+                e.target.className += ' ' + getStatusBadgeClass(newStatus);
+                
+                showNotification(`Task status updated to ${newStatus}`, 'success');
+            } catch (error) {
+                console.error('Error updating task status:', error);
+                showNotification('Error updating status', 'error');
+            }
+        });
+    }
 
     // Add delete button event listener
     const deleteBtn = div.querySelector('.task-delete-btn');
@@ -2406,6 +2446,16 @@ function getPriorityBadgeClass(priority) {
         low: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
     };
     return classes[priority] || classes.low;
+}
+
+function getStatusBadgeClass(status) {
+    const classes = {
+        todo: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
+        inProgress: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+        clientChecking: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
+        completed: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+    };
+    return classes[status] || classes.todo;
 }
 
 function escapeHtml(text) {
