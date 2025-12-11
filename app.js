@@ -932,6 +932,13 @@ function createTaskElement(task, viewType) {
              <i class="fas fa-eye mr-1"></i>${task.watchers.length} Watcher${task.watchers.length > 1 ? 's' : ''}
            </span>`
         : '';
+    
+    // Show drive link badge if present
+    const driveLinkBadge = task.driveLink 
+        ? `<a href="${escapeHtml(task.driveLink)}" target="_blank" onclick="event.stopPropagation()" class="text-xs px-2 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-full hover:bg-green-200 dark:hover:bg-green-800 transition" title="Open Drive link">
+             <i class="fab fa-google-drive mr-1"></i>Drive
+           </a>`
+        : '';
 
     div.innerHTML = `
         <div class="flex items-start justify-between group">
@@ -946,6 +953,7 @@ function createTaskElement(task, viewType) {
                         ${dueDateText ? `<span class="text-xs ${isOverdue ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}"><i class="far fa-calendar mr-1"></i>${dueDateText}</span>` : ''}
                         ${checklistProgress ? `<span class="text-xs text-gray-500 dark:text-gray-400"><i class="far fa-check-square mr-1"></i>${checklistProgress}</span>` : ''}
                         ${task.projectId ? `<span class="text-xs text-gray-500 dark:text-gray-400"><i class="fas fa-folder mr-1"></i>${getProjectName(task.projectId)}</span>` : ''}
+                        ${driveLinkBadge}
                         ${assignedToText ? `<span class="text-xs px-2 py-1 ${assignedBadgeClass} rounded-full" title="${assignedTooltip}"><i class="fas ${assignedIcon} mr-1"></i>${assignedToText}</span>` : ''}
                         ${watchersBadge}
                         ${taskOwnerBadge}
@@ -1137,6 +1145,7 @@ function openTaskModal(taskId = null) {
             document.getElementById('taskPriority').value = task.priority;
             document.getElementById('taskProject').value = task.projectId || '';
             document.getElementById('taskTags').value = task.tags || '';
+            document.getElementById('taskDriveLink').value = task.driveLink || '';
             
             // Populate assigned users with pre-selected users
             const assignedUsers = task.assignedTo || [];
@@ -1213,6 +1222,7 @@ async function handleTaskSubmit(e) {
     const projectId = document.getElementById('taskProject').value;
     const serviceId = document.getElementById('taskService').value;
     const tags = document.getElementById('taskTags').value;
+    const driveLink = document.getElementById('taskDriveLink').value.trim();
     
     console.log('Task form values - Project:', projectId, 'Service:', serviceId);
     
@@ -1258,6 +1268,7 @@ async function handleTaskSubmit(e) {
         priority,
         projectId,
         tags,
+        driveLink: driveLink || '', // Optional drive link
         checklist: checklistItems,
         assignedTo: assignedTo, // Array of assigned user IDs
         watchers: watchers, // Array of watcher user IDs
