@@ -1278,8 +1278,49 @@ async function handleTaskSubmit(e) {
     
     try {
         if (editingTaskId) {
+            // Get the original task to check for newly assigned users
+            const originalTask = tasks.find(t => t.id === editingTaskId);
+            const originalAssignees = originalTask?.assignedTo || [];
+            
             const taskRef = doc(db, 'tasks', editingTaskId);
             await updateDoc(taskRef, { ...taskData, updatedAt: serverTimestamp() });
+            
+            // Send notifications to newly assigned users
+            if (assignedTo && assignedTo.length > 0) {
+                // Find users who were newly assigned (not in the original list)
+                const newlyAssignedUsers = assignedTo.filter(userId => {
+                    if (Array.isArray(originalAssignees)) {
+                        return !originalAssignees.includes(userId);
+                    } else if (originalAssignees) {
+                        return originalAssignees !== userId && originalAssignees !== '__ALL__';
+                    }
+                    return true; // If no original assignees, all are new
+                });
+                
+                console.log('Newly assigned users:', newlyAssignedUsers);
+                
+                // Send notifications to newly assigned users
+                newlyAssignedUsers.forEach(userId => {
+                    if (userId !== currentUser.uid) {
+                        const assignedUser = users.find(u => u.uid === userId);
+                        if (assignedUser) {
+                            addInboxItem({
+                                id: `assign-${userId}-${editingTaskId}-${Date.now()}`,
+                                recipientUid: userId,
+                                type: 'assigned',
+                                title: 'Task Assigned to You',
+                                message: `${currentUser.email} assigned you: "${title}"`,
+                                taskId: editingTaskId,
+                                timestamp: new Date(),
+                                read: false,
+                                urgent: false
+                            });
+                            console.log('✅ Notification sent to newly assigned user:', assignedUser.email);
+                        }
+                    }
+                });
+            }
+            
             showNotification('Task updated successfully!', 'success');
         } else {
             console.log('Attempting to create new task...');
@@ -1782,10 +1823,24 @@ function getFilteredEverythingTasks() {
         // Filter by assignee
         if (everythingFilters.assignee) {
             if (everythingFilters.assignee === 'unassigned') {
-                if (task.assignedTo) return false;
+                // Check if task has no assignees
+                if (Array.isArray(task.assignedTo)) {
+                    if (task.assignedTo.length > 0) return false;
+                } else {
+                    if (task.assignedTo) return false;
+                }
             } else {
-                if (task.assignedTo !== everythingFilters.assignee && task.assignedTo !== '__ALL__') {
-                    return false;
+                // Check if the selected user is assigned to the task
+                if (Array.isArray(task.assignedTo)) {
+                    // New format: array of user IDs
+                    if (!task.assignedTo.includes(everythingFilters.assignee)) {
+                        return false;
+                    }
+                } else {
+                    // Legacy format: single user ID or __ALL__
+                    if (task.assignedTo !== everythingFilters.assignee && task.assignedTo !== '__ALL__') {
+                        return false;
+                    }
                 }
             }
         }
@@ -2829,6 +2884,7 @@ function switchToView(view) {
     document.getElementById('inboxView').classList.add('hidden');
     document.getElementById('listView').classList.add('hidden');
     document.getElementById('kanbanView').classList.add('hidden');
+    document.getElementById('everythingView').classList.add('hidden');
     document.getElementById('projectDetailView').classList.add('hidden');
     document.getElementById('serviceBoardView').classList.add('hidden');
     
